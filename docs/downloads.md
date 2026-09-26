@@ -39,5 +39,6 @@ MovieBox DASH streams require `yt-dlp` and `ffmpeg` to download and mux adaptive
 - **macOS**: `brew install yt-dlp ffmpeg`
 - **Android (Termux)**: `pkg install yt-dlp ffmpeg`
 - **Linux**: Install `yt-dlp` and `ffmpeg` via system package manager.
+The downloader preflights both binaries before launching the transfer, failing fast with platform-specific installation commands if either is absent. Any subprocess errors during transfer capture and display the underlying `yt-dlp` error diagnostics directly in the failure notification.
 
 All other providers (4KHDHub, BDIX, DhakaFlix, CircleFTP, TV mode) download directly through the internal HTTP engine.

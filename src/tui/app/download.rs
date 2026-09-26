@@ -246,6 +246,12 @@ impl App {
                         .ok();
                     return;
                 };
+                if crate::player::find_in_path("ffmpeg").is_none() {
+                    sender
+                        .send(Action::DownloadFailed(yt_dlp_missing_guidance()))
+                        .ok();
+                    return;
+                }
 
                 let mut cmd = tokio::process::Command::new(ytdlp_bin);
                 for (k, v) in &headers {
@@ -295,12 +301,19 @@ impl App {
                     }
                 };
 
+                let captured_stderr =
+                    std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+                let stderr_collector = std::sync::Arc::clone(&captured_stderr);
                 if let Some(stderr) = child.stderr.take() {
                     tokio::spawn(async move {
                         use tokio::io::AsyncBufReadExt;
                         let mut reader = tokio::io::BufReader::new(stderr).lines();
                         while let Ok(Some(line)) = reader.next_line().await {
                             log::debug!("yt-dlp stderr: {line}");
+                            let mut buf = stderr_collector.lock().await;
+                            if buf.len() < 20 {
+                                buf.push(line);
+                            }
                         }
                     });
                 }
@@ -390,11 +403,21 @@ impl App {
                                 ))
                                 .ok();
                         } else {
-                            sender
-                                .send(Action::DownloadFailed(format!(
-                                    "yt-dlp exited with status {s}"
-                                )))
-                                .ok();
+                            let lines = captured_stderr.lock().await;
+                            let last_err = lines
+                                .iter()
+                                .rev()
+                                .find(|l| l.contains("ERROR:") || !l.trim().is_empty())
+                                .cloned();
+                            drop(lines);
+                            let err_msg = match last_err {
+                                Some(e) if e.contains("ffmpeg") || e.contains("ffprobe") => {
+                                    format!("{e}\n{}", yt_dlp_missing_guidance())
+                                }
+                                Some(e) => e,
+                                None => format!("yt-dlp exited with status {s}"),
+                            };
+                            sender.send(Action::DownloadFailed(err_msg)).ok();
                         }
                     }
                     Err(err) => {

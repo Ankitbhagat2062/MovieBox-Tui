@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Download Engine & Subprocess Diagnostics**:
+  - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
+  - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.
+
 ## [0.1.24] - 2026-09-24
 
 ### Added
