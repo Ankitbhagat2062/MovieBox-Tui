@@ -8,6 +8,7 @@
   - Added `search_exhausted` tracking in `src/tui/state.rs` and `src/tui/app/requests.rs`, stopping pagination crawls when provider search returns fewer than 15 items or zero query-matching results.
   - Preserved stable card slot positions during search pagination in `src/tui/app/requests.rs` by appending subsequent page items to the list rather than re-sorting the entire array out from under the cursor.
 - **Media Playback & Buffering Engine**:
+  - Prioritized native desktop media players (`mpv`, `VLC`) over Android intent openers in `src/player.rs` when an active X11/Wayland display server (`$DISPLAY`, `$WAYLAND_DISPLAY`) is detected, preventing Ubuntu Xfce (udroid/PRoot) and Termux:X11 desktop sessions from dispatching playback to external Android app choosers.
   - Reduced `mpv` and `IINA` cache-pause wait penalty from 8 seconds to 2 seconds (`--cache-pause-wait=2`) and disabled startup cache pause (`--cache-pause-initial=no`) in `src/player.rs`, preventing multi-second playback stalls on minor network dips.
   - Replaced aggressive VLC buffering flags (`--network-caching=10000`, `--adaptive-logic=nearoptimal`) with `--network-caching=3000` and `--adaptive-logic=predictive` in `src/player.rs` to stop demuxer stream restarts and 10-second stall loops.
   - Enabled HTTP/1.1 persistent connections (`Keep-Alive`) across DASH segment streaming in `src/proxy.rs`, eliminating recurring TCP handshake overhead.

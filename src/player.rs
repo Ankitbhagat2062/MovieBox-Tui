@@ -53,11 +53,17 @@ impl PlayerKind {
     }
 }
 
+pub fn has_graphical_display() -> bool {
+    std::env::var("DISPLAY").is_ok_and(|v| !v.trim().is_empty())
+        || std::env::var("WAYLAND_DISPLAY").is_ok_and(|v| !v.trim().is_empty())
+}
+
 pub fn detect() -> Vec<PlayerKind> {
     let mut players = Vec::new();
 
     let is_termux = crate::updater::artifact::is_termux_environment();
-    if is_termux && !android_openers().is_empty() {
+    let has_gui = has_graphical_display();
+    if is_termux && !has_gui && !android_openers().is_empty() {
         players.push(PlayerKind::AndroidIntent);
     }
 
@@ -74,7 +80,7 @@ pub fn detect() -> Vec<PlayerKind> {
         players.push(PlayerKind::Vlc);
     }
 
-    if !is_termux && !android_openers().is_empty() {
+    if (!is_termux || has_gui) && !android_openers().is_empty() {
         players.push(PlayerKind::AndroidIntent);
     }
 
@@ -1941,5 +1947,43 @@ mod tests {
             args.last().map(String::as_str),
             Some("http://127.0.0.1:4567/proxy/manifest.mpd")
         );
+    }
+
+    #[test]
+    fn test_has_graphical_display_detection() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let orig_display = std::env::var("DISPLAY").ok();
+        let orig_wayland = std::env::var("WAYLAND_DISPLAY").ok();
+
+        unsafe {
+            std::env::set_var("DISPLAY", ":0");
+            std::env::remove_var("WAYLAND_DISPLAY");
+        }
+        assert!(has_graphical_display());
+
+        unsafe {
+            std::env::remove_var("DISPLAY");
+            std::env::set_var("WAYLAND_DISPLAY", "wayland-1");
+        }
+        assert!(has_graphical_display());
+
+        unsafe {
+            std::env::set_var("DISPLAY", "   ");
+            std::env::remove_var("WAYLAND_DISPLAY");
+        }
+        assert!(!has_graphical_display());
+
+        unsafe {
+            if let Some(val) = orig_display {
+                std::env::set_var("DISPLAY", val);
+            } else {
+                std::env::remove_var("DISPLAY");
+            }
+            if let Some(val) = orig_wayland {
+                std::env::set_var("WAYLAND_DISPLAY", val);
+            } else {
+                std::env::remove_var("WAYLAND_DISPLAY");
+            }
+        }
     }
 }

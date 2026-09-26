@@ -12,8 +12,9 @@ Players are detected in priority order and cached across runs:
   - Searches `$PATH`, `~/.local/bin`, Flatpak exports (`io.mpv.Mpv`, `org.videolan.VLC`), and Snap.
 - **Windows**: `mpv` → `VLC`
   - Searches `%LOCALAPPDATA%`, `Program Files`, WinGet packages, Scoop shims, Chocolatey, and Windows Registry `App Paths`.
-- **Android / Termux**: `Android Intent`
-  - Dispatches to external video players via `termux-open` or `am start`.
+- **Android / Termux**: `Android Intent` (headless CLI) or `mpv` → `VLC` → `Android Intent` (graphical X11/Wayland desktop)
+  - In headless terminal environments without an active display server, dispatches directly to external Android media apps via `termux-open` or `am start`.
+  - In graphical environments with an active display server (`$DISPLAY` or `$WAYLAND_DISPLAY`, such as Xfce in udroid/PRoot or Termux:X11), native desktop players (`mpv`/`VLC`) are prioritized so playback opens in a desktop window.
 
 You can set a default player via `/settings` (Media Player), or override it with the `MOVIEBOX_PLAYER` environment variable.
 
