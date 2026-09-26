@@ -167,6 +167,7 @@ pub struct AppState {
     pub homepage_cache: lru::LruCache<(String, usize), HomepageCacheData>,
     pub search_results: Vec<SearchResult>,
     pub search_error: Option<String>,
+    pub search_exhausted: bool,
     pub is_homepage_mode: bool,
     pub current_tab_id: String,
     pub current_page: usize,
@@ -344,6 +345,7 @@ impl Default for AppState {
             homepage_cache: lru::LruCache::new(cache_capacity(32)),
             search_results: Vec::new(),
             search_error: None,
+            search_exhausted: false,
             is_homepage_mode: false,
             current_tab_id: String::new(),
             current_page: 1,
@@ -831,6 +833,7 @@ impl AppState {
         self.favorites_focus = false;
         self.favorites_landing_state.select(None);
         self.has_search_settled = false;
+        self.search_exhausted = false;
     }
 
     pub fn clear_details_state(&mut self) {

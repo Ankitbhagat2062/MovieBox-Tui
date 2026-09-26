@@ -120,6 +120,7 @@ impl App {
             || self.state.search_results.is_empty()
             || self.state.active_browse_preset.is_some()
             || self.state.search_query.trim().starts_with('/')
+            || (!self.state.is_homepage_mode && self.state.search_exhausted)
         {
             return;
         }
@@ -128,7 +129,13 @@ impl App {
         let offset = self.state.result_scroll;
         let visible = self.state.effective_visible_items().max(6);
 
-        if selected + 8 >= total || offset + visible + 4 >= total {
+        let should_fetch = if self.state.is_homepage_mode {
+            selected + 8 >= total || offset + visible + 4 >= total
+        } else {
+            total >= visible && (selected + 4 >= total || offset + visible >= total)
+        };
+
+        if should_fetch {
             let next_page = self.state.current_page + 1;
             if self.state.is_homepage_mode {
                 self.action_sender
@@ -1020,5 +1027,64 @@ mod tests {
 
         app.handle_action(Action::GoBack).await;
         assert!(app.state.notifications.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_pagination_does_not_trigger_on_tiny_result_set() {
+        let mut app = App::new();
+        app.state.search_query.set_content("deewaniyat");
+        app.state.is_homepage_mode = false;
+        app.state.search_results.push(crate::models::SearchResult {
+            id: "1".to_string(),
+            title: "Deewaniyat".to_string(),
+            stype: 2,
+            release_year: "2024".to_string(),
+            cover_url: None,
+            season: 0,
+            episode: 1,
+            provider: ProviderKind::MovieBox,
+        });
+        app.state.search_results.push(crate::models::SearchResult {
+            id: "2".to_string(),
+            title: "Ek Deewane Ki Deewaniyat".to_string(),
+            stype: 1,
+            release_year: "2025".to_string(),
+            cover_url: None,
+            season: 0,
+            episode: 1,
+            provider: ProviderKind::MovieBox,
+        });
+        app.state.search_list_state.select(Some(0));
+
+        app.trigger_next_page_if_needed();
+
+        assert!(app.request_tasks.search.is_none());
+        assert!(!app.state.is_loading);
+    }
+
+    #[tokio::test]
+    async fn test_search_pagination_respects_search_exhausted() {
+        let mut app = App::new();
+        app.state.search_query.set_content("test");
+        app.state.is_homepage_mode = false;
+        app.state.search_exhausted = true;
+        for i in 0..20 {
+            app.state.search_results.push(crate::models::SearchResult {
+                id: i.to_string(),
+                title: format!("Test {i}"),
+                stype: 1,
+                release_year: "2025".to_string(),
+                cover_url: None,
+                season: 0,
+                episode: 1,
+                provider: ProviderKind::MovieBox,
+            });
+        }
+        app.state.search_list_state.select(Some(19));
+
+        app.trigger_next_page_if_needed();
+
+        assert!(app.request_tasks.search.is_none());
+        assert!(!app.state.is_loading);
     }
 }

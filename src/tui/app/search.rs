@@ -207,6 +207,7 @@ impl App {
         self.state.active_addon_catalog = None;
         self.state.browse_metrics.clear();
         self.state.current_page = 1;
+        self.state.search_exhausted = false;
         self.state.active_screen = Screen::Home;
         self.state.active_subject_id = None;
         self.state.selected_details = None;

@@ -302,9 +302,8 @@ impl App {
                 self.state.search_error = None;
                 self.state.is_loading = false;
                 self.state.has_search_settled = true;
-                if page <= 1 {
-                    self.state.search_results.clear();
-                }
+                let raw_count = items.len();
+                let mut new_results = Vec::new();
 
                 for item in items {
                     let id = item.id.value.clone();
@@ -348,23 +347,28 @@ impl App {
                         || raw_lower.contains("[english]");
 
                     if is_dub
-                        && self
+                        && (self
                             .state
                             .search_results
                             .iter()
                             .any(|r| r.title == clean_title && r.stype == stype)
+                            || new_results
+                                .iter()
+                                .any(|r: &SearchResult| r.title == clean_title && r.stype == stype))
                     {
                         continue;
                     }
 
                     if self.state.search_results.iter().any(|r| {
                         r.title == clean_title && r.release_year == release_year && r.stype == stype
+                    }) || new_results.iter().any(|r: &SearchResult| {
+                        r.title == clean_title && r.release_year == release_year && r.stype == stype
                     }) {
                         continue;
                     }
 
                     if !id.is_empty() {
-                        self.state.search_results.push(SearchResult {
+                        new_results.push(SearchResult {
                             id,
                             title: clean_title.to_string(),
                             stype,
@@ -377,6 +381,30 @@ impl App {
                     }
                 }
 
+                if new_results.is_empty() || raw_count < 15 {
+                    self.state.search_exhausted = true;
+                }
+
+                let sort_results = |results: &mut Vec<SearchResult>, q: &str| {
+                    let query_lower = q.to_lowercase();
+                    results.sort_by(|a, b| {
+                        let a_title = a.title.to_lowercase();
+                        let b_title = b.title.to_lowercase();
+
+                        let a_exact = a_title == query_lower;
+                        let b_exact = b_title == query_lower;
+
+                        let a_starts = a_title.starts_with(&query_lower);
+                        let b_starts = b_title.starts_with(&query_lower);
+
+                        b_exact
+                            .cmp(&a_exact)
+                            .then_with(|| b_starts.cmp(&a_starts))
+                            .then_with(|| b.stype.cmp(&a.stype))
+                            .then_with(|| b.release_year.cmp(&a.release_year))
+                    });
+                };
+
                 let previous_selected_id = if page > 1 {
                     self.state
                         .search_list_state
@@ -386,24 +414,13 @@ impl App {
                     None
                 };
 
-                let query_lower = query.to_lowercase();
-                self.state.search_results.sort_by(|a, b| {
-                    let a_title = a.title.to_lowercase();
-                    let b_title = b.title.to_lowercase();
-
-                    let a_exact = a_title == query_lower;
-                    let b_exact = b_title == query_lower;
-
-                    let a_starts = a_title.starts_with(&query_lower);
-                    let b_starts = b_title.starts_with(&query_lower);
-
-                    b_exact
-                        .cmp(&a_exact)
-                        .then_with(|| b_starts.cmp(&a_starts))
-                        .then_with(|| b.stype.cmp(&a.stype))
-                        .then_with(|| b.release_year.cmp(&a.release_year))
-                });
-
+                if page <= 1 {
+                    self.state.search_results = new_results;
+                    sort_results(&mut self.state.search_results, &query);
+                } else {
+                    sort_results(&mut new_results, &query);
+                    self.state.search_results.extend(new_results);
+                }
                 if let Some(prev_id) = previous_selected_id {
                     if let Some(new_idx) = self
                         .state
@@ -2082,5 +2099,68 @@ mod tests {
         assert_eq!(details.director.as_deref(), Some("Director Name"));
         assert_eq!(details.stars.as_deref(), Some("Actor One, Actor Two"));
         assert_eq!(details.dubs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_search_success_preserves_page_1_order_and_sets_exhausted() {
+        let mut app = App::new();
+        app.state.search_query.set_content("deewaniyat");
+        let context = app.request_context();
+        let request_id = app.state.active_search_request;
+        let page1_items = vec![
+            crate::providers::models::CatalogItem {
+                id: crate::providers::models::ProviderMediaId {
+                    value: "1".into(),
+                    provider: ProviderKind::MovieBox,
+                },
+                title: "Deewaniyat".into(),
+                media_type: crate::models::MediaType::Series,
+                year: Some("2024".into()),
+                poster_url: None,
+                season_count: None,
+            },
+            crate::providers::models::CatalogItem {
+                id: crate::providers::models::ProviderMediaId {
+                    value: "2".into(),
+                    provider: ProviderKind::MovieBox,
+                },
+                title: "Ek Deewane Ki Deewaniyat".into(),
+                media_type: crate::models::MediaType::Movie,
+                year: Some("2025".into()),
+                poster_url: None,
+                season_count: None,
+            },
+        ];
+
+        app.handle_requests(Action::SearchSuccess {
+            context,
+            request_id,
+            query: "deewaniyat".into(),
+            page: 1,
+            items: page1_items,
+        })
+        .await;
+
+        assert_eq!(app.state.search_results.len(), 2);
+        assert_eq!(app.state.search_results[0].title, "Deewaniyat");
+        assert_eq!(
+            app.state.search_results[1].title,
+            "Ek Deewane Ki Deewaniyat"
+        );
+        // Page 1 only had 2 items (< 15), so it should already be marked exhausted
+        assert!(app.state.search_exhausted);
+
+        // If a page 2 arrives with 0 matching items, search_exhausted remains true
+        app.handle_requests(Action::SearchSuccess {
+            context,
+            request_id,
+            query: "deewaniyat".into(),
+            page: 2,
+            items: vec![],
+        })
+        .await;
+
+        assert_eq!(app.state.search_results.len(), 2);
+        assert!(app.state.search_exhausted);
     }
 }
