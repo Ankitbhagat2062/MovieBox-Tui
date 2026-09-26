@@ -32,6 +32,7 @@ pub fn spawn_sidecar(
     target_url: &str,
     headers: &[(String, String)],
     subtitle_url: Option<&str>,
+    max_height: Option<u64>,
 ) -> Result<String, String> {
     let exe = std::env::current_exe()
         .ok()
@@ -40,13 +41,19 @@ pub fn spawn_sidecar(
 
     let headers_json = serde_json::to_string(headers).unwrap_or_else(|_| "[]".to_string());
     let sub_arg = subtitle_url.unwrap_or("");
+    let height_arg = max_height.map(|h| h.to_string()).unwrap_or_default();
 
     let mut cmd = Command::new(exe);
-    cmd.args(["--proxy-for-vlc", target_url, &headers_json, sub_arg]);
+    cmd.args([
+        "--proxy-for-vlc",
+        target_url,
+        &headers_json,
+        sub_arg,
+        &height_arg,
+    ]);
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::null());
-
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -110,6 +117,7 @@ pub async fn run_sidecar(
     target_url: String,
     headers: Vec<(String, String)>,
     subtitle_url: Option<String>,
+    max_height: Option<u64>,
 ) {
     let client = crate::net::streaming_client_builder()
         .connect_timeout(Duration::from_secs(15))
@@ -186,6 +194,7 @@ pub async fn run_sidecar(
                 &headers,
                 target_host.as_deref(),
                 sub_opt.as_deref(),
+                max_height,
             )
             .await;
         });
@@ -211,130 +220,138 @@ async fn handle_connection(
     auth_headers: &[(String, String)],
     target_host: Option<&str>,
     subtitle_url: Option<&str>,
+    max_height: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (reader, writer) = stream.into_split();
     let mut buf_reader = BufReader::new(reader);
     let mut writer = tokio::io::BufWriter::with_capacity(128 * 1024, writer);
 
-    let mut request_line = String::new();
-    let n = buf_reader.read_line(&mut request_line).await?;
-    if n == 0 {
-        return Ok(());
-    }
-    if request_line.len() > MAX_LINE_BYTES {
-        writer
-            .write_all(b"HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .await?;
-        writer.flush().await?;
-        return Ok(());
-    }
-
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("GET");
-    let path_and_query = parts.next().unwrap_or("/");
-
-    let mut range_header = None;
-    let mut header_count = 0usize;
     loop {
-        let mut header_line = String::new();
-        if buf_reader.read_line(&mut header_line).await? == 0 {
-            break;
+        let mut request_line = String::new();
+        let n = buf_reader.read_line(&mut request_line).await?;
+        if n == 0 {
+            return Ok(());
         }
-        let trimmed = header_line.trim();
-        if trimmed.is_empty() {
-            break;
+        if request_line.len() > MAX_LINE_BYTES {
+            writer
+                .write_all(b"HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await?;
+            writer.flush().await?;
+            return Ok(());
         }
-        if header_line.len() > MAX_LINE_BYTES {
-            break;
-        }
-        header_count += 1;
-        if header_count > MAX_HEADERS {
-            break;
-        }
-        if let Some((name, val)) = trimmed.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("range") {
-                range_header = Some(val.trim().to_string());
+
+        let mut parts = request_line.split_whitespace();
+        let method = parts.next().unwrap_or("GET");
+        let path_and_query = parts.next().unwrap_or("/");
+
+        let mut range_header = None;
+        let mut client_close = false;
+        let mut header_count = 0usize;
+        loop {
+            let mut header_line = String::new();
+            if buf_reader.read_line(&mut header_line).await? == 0 {
+                break;
+            }
+            let trimmed = header_line.trim();
+            if trimmed.is_empty() {
+                break;
+            }
+            if header_line.len() > MAX_LINE_BYTES {
+                break;
+            }
+            header_count += 1;
+            if header_count > MAX_HEADERS {
+                break;
+            }
+            if let Some((name, val)) = trimmed.split_once(':') {
+                if name.trim().eq_ignore_ascii_case("range") {
+                    range_header = Some(val.trim().to_string());
+                } else if name.trim().eq_ignore_ascii_case("connection") {
+                    if val.trim().eq_ignore_ascii_case("close") {
+                        client_close = true;
+                    }
+                }
             }
         }
-    }
 
-    let target_url = match extract_target_url(path_and_query) {
-        Some(url) => url,
-        None => {
+        let target_url = match extract_target_url(path_and_query) {
+            Some(url) => url,
+            None => {
+                let response =
+                    "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                writer.write_all(response.as_bytes()).await?;
+                writer.flush().await?;
+                return Ok(());
+            }
+        };
+        let extracted_host = extract_host_authority(&target_url);
+        let sub_host = subtitle_url.and_then(extract_host_authority);
+        let is_allowed = match (target_host, extracted_host.as_deref()) {
+            (Some(allowed), Some(extracted)) => {
+                extracted == allowed || (sub_host.is_some() && extracted_host == sub_host)
+            }
+            _ => false,
+        };
+        if !is_allowed {
             let response =
-                "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             writer.write_all(response.as_bytes()).await?;
             writer.flush().await?;
             return Ok(());
         }
-    };
-    let extracted_host = extract_host_authority(&target_url);
-    let sub_host = subtitle_url.and_then(extract_host_authority);
-    let is_allowed = match (target_host, extracted_host.as_deref()) {
-        (Some(allowed), Some(extracted)) => {
-            extracted == allowed || (sub_host.is_some() && extracted_host == sub_host)
+
+        let mut req = match method {
+            "HEAD" => client.head(&target_url),
+            _ => client.get(&target_url),
+        };
+
+        let forward_all_headers = extracted_host.as_deref() == target_host;
+        for (name, val) in auth_headers {
+            if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
+                req = req.header(name.as_str(), val.as_str());
+            }
         }
-        _ => false,
-    };
-    if !is_allowed {
-        let response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-        writer.write_all(response.as_bytes()).await?;
-        writer.flush().await?;
-        return Ok(());
-    }
-
-    let mut req = match method {
-        "HEAD" => client.head(&target_url),
-        _ => client.get(&target_url),
-    };
-
-    let forward_all_headers = extracted_host.as_deref() == target_host;
-    for (name, val) in auth_headers {
-        if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
-            req = req.header(name.as_str(), val.as_str());
+        if let Some(range) = range_header {
+            req = req.header("Range", range);
         }
-    }
-    if let Some(range) = range_header {
-        req = req.header("Range", range);
-    }
 
-    let upstream_res = match req.send().await {
-        Ok(res) => res,
-        Err(e) => {
-            let body = format!("Gateway Error: {e}");
-            let response = format!(
-                "HTTP/1.1 502 Bad Gateway\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            writer.write_all(response.as_bytes()).await?;
-            writer.flush().await?;
-            return Ok(());
-        }
-    };
+        let upstream_res = match req.send().await {
+            Ok(res) => res,
+            Err(e) => {
+                let body = format!("Gateway Error: {e}");
+                let response = format!(
+                    "HTTP/1.1 502 Bad Gateway\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                writer.write_all(response.as_bytes()).await?;
+                writer.flush().await?;
+                return Ok(());
+            }
+        };
 
-    let status = upstream_res.status();
+        let status = upstream_res.status();
 
-    let content_length = upstream_res
-        .headers()
-        .get(reqwest::header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<usize>().ok());
-
-    let is_dash_manifest = target_url.ends_with(".mpd")
-        || upstream_res
+        let content_length = upstream_res
             .headers()
-            .get(reqwest::header::CONTENT_TYPE)
+            .get(reqwest::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
-            .map(|ct| ct.contains("dash+xml") || ct.contains("xml"))
-            .unwrap_or(false);
+            .and_then(|s| s.parse::<usize>().ok());
 
-    let within_manifest_limit = content_length.is_none_or(|len| len <= MAX_MANIFEST_BYTES);
+        let is_dash_manifest = target_url.ends_with(".mpd")
+            || upstream_res
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(|ct| ct.contains("dash+xml") || ct.contains("xml"))
+                .unwrap_or(false);
 
-    if is_dash_manifest && status.is_success() && within_manifest_limit {
-        let manifest_bytes = upstream_res.bytes().await?;
-        if manifest_bytes.len() > MAX_MANIFEST_BYTES {
-            let body = "Manifest too large";
-            writer
+        let within_manifest_limit = content_length.is_none_or(|len| len <= MAX_MANIFEST_BYTES);
+
+        if is_dash_manifest && status.is_success() && within_manifest_limit {
+            let manifest_bytes = upstream_res.bytes().await?;
+            if manifest_bytes.len() > MAX_MANIFEST_BYTES {
+                let body = "Manifest too large";
+                writer
                 .write_all(
                     format!(
                         "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -343,52 +360,70 @@ async fn handle_connection(
                     .as_bytes(),
                 )
                 .await?;
+                writer.flush().await?;
+                return Ok(());
+            }
+            let manifest_str = String::from_utf8_lossy(&manifest_bytes);
+            let rewritten = rewrite_dash_manifest(
+                &manifest_str,
+                proxy_port,
+                target_host,
+                subtitle_url,
+                max_height,
+            );
+            let rewritten_bytes = rewritten.as_bytes();
+
+            let conn_header = if client_close {
+                "Connection: close\r\n"
+            } else {
+                "Connection: keep-alive\r\n"
+            };
+            let headers_out = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/dash+xml\r\nContent-Length: {}\r\n{conn_header}\r\n",
+                rewritten_bytes.len()
+            );
+            writer.write_all(headers_out.as_bytes()).await?;
+            writer.write_all(rewritten_bytes).await?;
             writer.flush().await?;
+            if client_close {
+                return Ok(());
+            }
+            continue;
+        }
+        let status_line = format!(
+            "HTTP/1.1 {} {}\r\n",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("OK")
+        );
+        writer.write_all(status_line.as_bytes()).await?;
+        let keep_alive = !client_close && content_length.is_some();
+        let headers_bytes =
+            format_proxy_response_headers(upstream_res.headers(), &target_url, keep_alive);
+        writer.write_all(&headers_bytes).await?;
+        writer.flush().await?;
+        let mut stream = upstream_res.bytes_stream();
+        loop {
+            let chunk_result =
+                tokio::time::timeout(Duration::from_secs(CHUNK_IDLE_TIMEOUT_SECS), stream.next())
+                    .await;
+            match chunk_result {
+                Ok(Some(Ok(chunk))) => writer.write_all(&chunk).await?,
+                Ok(Some(Err(e))) => return Err(Box::new(e)),
+                Ok(None) => break,
+                Err(_elapsed) => break,
+            }
+        }
+        writer.flush().await?;
+
+        if !keep_alive {
             return Ok(());
         }
-        let manifest_str = String::from_utf8_lossy(&manifest_bytes);
-        let rewritten = rewrite_dash_manifest(&manifest_str, proxy_port, target_host, subtitle_url);
-        let rewritten_bytes = rewritten.as_bytes();
-
-        let headers_out = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/dash+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            rewritten_bytes.len()
-        );
-        writer.write_all(headers_out.as_bytes()).await?;
-        writer.write_all(rewritten_bytes).await?;
-        writer.flush().await?;
-        return Ok(());
     }
-
-    let status_line = format!(
-        "HTTP/1.1 {} {}\r\n",
-        status.as_u16(),
-        status.canonical_reason().unwrap_or("OK")
-    );
-    writer.write_all(status_line.as_bytes()).await?;
-
-    let headers_bytes = format_proxy_response_headers(upstream_res.headers(), &target_url);
-    writer.write_all(&headers_bytes).await?;
-    writer.flush().await?;
-
-    let mut stream = upstream_res.bytes_stream();
-    loop {
-        let chunk_result =
-            tokio::time::timeout(Duration::from_secs(CHUNK_IDLE_TIMEOUT_SECS), stream.next()).await;
-        match chunk_result {
-            Ok(Some(Ok(chunk))) => writer.write_all(&chunk).await?,
-            Ok(Some(Err(e))) => return Err(Box::new(e)),
-            Ok(None) => break,
-            Err(_elapsed) => break,
-        }
-    }
-    writer.flush().await?;
-
-    Ok(())
 }
 fn format_proxy_response_headers(
     headers: &reqwest::header::HeaderMap,
     target_url: &str,
+    keep_alive: bool,
 ) -> Vec<u8> {
     let mut out = Vec::new();
     let clean_path = target_url
@@ -424,7 +459,11 @@ fn format_proxy_response_headers(
     } else if is_vtt {
         out.extend_from_slice(b"Content-Type: text/vtt\r\n");
     }
-    out.extend_from_slice(b"Connection: close\r\n\r\n");
+    if keep_alive {
+        out.extend_from_slice(b"Connection: keep-alive\r\n\r\n");
+    } else {
+        out.extend_from_slice(b"Connection: close\r\n\r\n");
+    }
     out
 }
 
@@ -461,14 +500,97 @@ fn extract_target_url(path_and_query: &str) -> Option<String> {
     }
 }
 
+fn filter_dash_representations(manifest: &str, max_height: u64) -> String {
+    let mut reps = Vec::new();
+    let mut cursor = 0;
+    while let Some(start_rel) = manifest[cursor..].find("<Representation") {
+        let start = cursor + start_rel;
+        let rest = &manifest[start..];
+        if let Some(tag_end_rel) = rest.find('>') {
+            let tag_content = &rest[..=tag_end_rel];
+            if tag_content.ends_with("/>") {
+                let end = start + tag_end_rel + 1;
+                reps.push((start, end));
+                cursor = end;
+            } else if let Some(close_rel) = rest.find("</Representation>") {
+                let end = start + close_rel + "</Representation>".len();
+                reps.push((start, end));
+                cursor = end;
+            } else {
+                cursor = start + tag_end_rel + 1;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if reps.is_empty() {
+        return manifest.to_string();
+    }
+
+    let parse_height = |block: &str| -> Option<u64> {
+        let mut search = block;
+        while let Some(pos) = search.find("height=") {
+            let after = &search[pos + "height=".len()..];
+            let quote = after.chars().next()?;
+            if quote == '"' || quote == '\'' {
+                let digits: String = after[1..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                if let Ok(h) = digits.parse::<u64>() {
+                    return Some(h);
+                }
+            }
+            search = after;
+        }
+        None
+    };
+
+    let heights: Vec<Option<u64>> = reps
+        .iter()
+        .map(|&(s, e)| parse_height(&manifest[s..e]))
+        .collect();
+    let video_heights: Vec<u64> = heights.iter().filter_map(|&h| h).collect();
+    if video_heights.is_empty() {
+        return manifest.to_string();
+    }
+
+    let target_ceiling = if video_heights.iter().any(|&h| h <= max_height) {
+        max_height
+    } else {
+        *video_heights.iter().min().unwrap_or(&max_height)
+    };
+
+    let mut out = String::with_capacity(manifest.len());
+    let mut last = 0;
+    for (&(s, e), h_opt) in reps.iter().zip(heights.iter()) {
+        if let Some(h) = h_opt {
+            if *h > target_ceiling {
+                out.push_str(&manifest[last..s]);
+                last = e;
+            }
+        }
+    }
+    out.push_str(&manifest[last..]);
+    out
+}
+
 fn rewrite_dash_manifest(
     manifest: &str,
     proxy_port: u16,
     target_host: Option<&str>,
     subtitle_url: Option<&str>,
+    max_height: Option<u64>,
 ) -> String {
     let Some(host) = target_host else {
         return manifest.to_string();
+    };
+
+    let filtered_manifest = if let Some(limit) = max_height.filter(|&h| h > 0) {
+        filter_dash_representations(manifest, limit)
+    } else {
+        manifest.to_string()
     };
 
     let https_prefix = format!("https://{host}/");
@@ -477,7 +599,7 @@ fn rewrite_dash_manifest(
     let proxy_https = format!("http://127.0.0.1:{proxy_port}/https/{host}/");
     let proxy_http = format!("http://127.0.0.1:{proxy_port}/http/{host}/");
 
-    let mut rewritten = manifest
+    let mut rewritten = filtered_manifest
         .replace(&https_prefix, &proxy_https)
         .replace(&http_prefix, &proxy_http);
 
@@ -604,8 +726,8 @@ mod tests {
 </Period>
 </MPD>"#;
 
-        let rewritten = rewrite_dash_manifest(manifest, 8888, Some("sacdn.example.com"), None);
-
+        let rewritten =
+            rewrite_dash_manifest(manifest, 8888, Some("sacdn.example.com"), None, None);
         assert!(
             rewritten.contains("https://standards.iso.org/schema.xsd"),
             "XML namespace schema must not be corrupted"
@@ -630,7 +752,8 @@ mod tests {
     #[test]
     fn test_rewrite_dash_manifest_with_explicit_port() {
         let manifest = r#"<MPD><Period><BaseURL>https://cdn.example.com:8080/dash/seg.mp4</BaseURL></Period></MPD>"#;
-        let rewritten = rewrite_dash_manifest(manifest, 9999, Some("cdn.example.com:8080"), None);
+        let rewritten =
+            rewrite_dash_manifest(manifest, 9999, Some("cdn.example.com:8080"), None, None);
         assert!(
             rewritten.contains("http://127.0.0.1:9999/https/cdn.example.com:8080/dash/seg.mp4"),
             "Port must be preserved in proxy route"
@@ -645,8 +768,7 @@ mod tests {
         headers.insert("server", "cloudflare".parse().unwrap());
 
         let url = "https://cdn.example.com/subs.SRT?token=abc123&expires=999#top";
-        let out = String::from_utf8(format_proxy_response_headers(&headers, url)).unwrap();
-
+        let out = String::from_utf8(format_proxy_response_headers(&headers, url, false)).unwrap();
         assert_eq!(out.matches("Access-Control-Allow-Origin: *").count(), 1);
         assert_eq!(out.matches("Content-Type: application/x-subrip").count(), 1);
         assert_eq!(out.matches("Connection: close").count(), 1);
@@ -662,8 +784,7 @@ mod tests {
         headers.insert("content-length", "500".parse().unwrap());
 
         let url = "https://cdn.example.com/subs.vtt";
-        let out = String::from_utf8(format_proxy_response_headers(&headers, url)).unwrap();
-
+        let out = String::from_utf8(format_proxy_response_headers(&headers, url, false)).unwrap();
         assert_eq!(out.matches("Access-Control-Allow-Origin: *").count(), 1);
         assert_eq!(out.matches("Content-Type: text/vtt").count(), 1);
         assert!(!out.contains("application/octet-stream"));
@@ -677,11 +798,44 @@ mod tests {
         headers.insert("content-length", "10000000".parse().unwrap());
 
         let url = "https://cdn.example.com/video.mp4";
-        let out = String::from_utf8(format_proxy_response_headers(&headers, url)).unwrap();
-
+        let out = String::from_utf8(format_proxy_response_headers(&headers, url, true)).unwrap();
         assert_eq!(out.matches("Access-Control-Allow-Origin: *").count(), 1);
         assert!(out.contains("content-type: video/mp4"));
         assert!(!out.contains("application/x-subrip"));
         assert!(!out.contains("text/vtt"));
+    }
+
+    #[test]
+    fn test_format_proxy_response_headers_keep_alive() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("content-type", "video/mp4".parse().unwrap());
+        headers.insert("content-length", "1000".parse().unwrap());
+
+        let url = "https://cdn.example.com/segment.m4s";
+        let out = String::from_utf8(format_proxy_response_headers(&headers, url, true)).unwrap();
+        assert!(out.contains("Connection: keep-alive"));
+        assert!(!out.contains("Connection: close"));
+    }
+
+    #[test]
+    fn test_filter_dash_representations_caps_height() {
+        let manifest = r#"<MPD>
+<Period>
+  <AdaptationSet>
+    <Representation id="1080" height="1080" bandwidth="800000"><BaseURL>1080.m4s</BaseURL></Representation>
+    <Representation id="720" height="720" bandwidth="400000"><BaseURL>720.m4s</BaseURL></Representation>
+    <Representation id="480" height="480" bandwidth="200000"><BaseURL>480.m4s</BaseURL></Representation>
+  </AdaptationSet>
+</Period>
+</MPD>"#;
+        let filtered = filter_dash_representations(manifest, 720);
+        assert!(!filtered.contains("height=\"1080\""));
+        assert!(filtered.contains("height=\"720\""));
+        assert!(filtered.contains("height=\"480\""));
+
+        let filtered_480 = filter_dash_representations(manifest, 480);
+        assert!(!filtered_480.contains("height=\"1080\""));
+        assert!(!filtered_480.contains("height=\"720\""));
+        assert!(filtered_480.contains("height=\"480\""));
     }
 }

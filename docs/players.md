@@ -30,10 +30,10 @@ mpv --autofit=WxH --geometry=50%:50% --idle=no --keep-open=no [OPTIONS] <url>
 
 ### VLC
 ```bash
-vlc --width=W --height=H --play-and-exit --adaptive-logic=highest [OPTIONS] <url>
+vlc --width=W --height=H --play-and-exit --network-caching=3000 --adaptive-logic=predictive [OPTIONS] <url>
 ```
 - **Headers**: Mapped to `--http-user-agent` and `--http-referrer`.
-- **CloudFront Streams**: CloudFront cookie-authenticated DASH streams route through a local loopback proxy sidecar (`127.0.0.1:<port>`) that injects auth headers server-side.
+- **CloudFront Streams**: CloudFront cookie-authenticated DASH streams route through a local loopback proxy sidecar (`127.0.0.1:<port>`) with HTTP/1.1 persistent connections (`Keep-Alive`) and resolution representation capping to inject auth headers server-side.
 - **Subtitles**: Remote subtitles are pre-downloaded to temporary storage and passed via `--sub-file=<path>`.
 
 ### IINA (macOS)

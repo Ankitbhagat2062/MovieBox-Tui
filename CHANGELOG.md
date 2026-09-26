@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
+- **Media Playback & Buffering Engine**:
+  - Reduced `mpv` and `IINA` cache-pause wait penalty from 8 seconds to 2 seconds (`--cache-pause-wait=2`) and disabled startup cache pause (`--cache-pause-initial=no`) in `src/player.rs`, preventing multi-second playback stalls on minor network dips.
+  - Replaced aggressive VLC buffering flags (`--network-caching=10000`, `--adaptive-logic=nearoptimal`) with `--network-caching=3000` and `--adaptive-logic=predictive` in `src/player.rs` to stop demuxer stream restarts and 10-second stall loops.
+  - Enabled HTTP/1.1 persistent connections (`Keep-Alive`) across DASH segment streaming in `src/proxy.rs`, eliminating recurring TCP handshake overhead.
+  - Enforced `max_height` resolution limits in the loopback stream proxy manifest rewriter (`src/proxy.rs`, `src/main.rs`, `src/tui/app/playback.rs`), pruning representations exceeding the chosen ceiling so Android players and VLC respect 480p and 720p selections.
 - **Download Engine & Subprocess Diagnostics**:
   - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
   - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.

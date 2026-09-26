@@ -424,8 +424,8 @@ fn mpv_command(
     command.arg(format!("{prefix}geometry=50%:50%"));
     command.arg(format!("{prefix}cache=yes"));
     command.arg(format!("{prefix}cache-pause=yes"));
-    command.arg(format!("{prefix}cache-pause-wait=8"));
-    command.arg(format!("{prefix}cache-pause-initial=yes"));
+    command.arg(format!("{prefix}cache-pause-wait=2"));
+    command.arg(format!("{prefix}cache-pause-initial=no"));
     let (max_bytes, back_bytes) =
         if cfg!(target_os = "android") || crate::updater::artifact::is_termux_environment() {
             ("128M", "50M")
@@ -679,8 +679,8 @@ fn vlc_command(
             .arg(format!("--height={height}"));
     }
     command.arg("--play-and-exit");
-    command.arg("--network-caching=10000");
-    command.arg("--adaptive-logic=nearoptimal");
+    command.arg("--network-caching=3000");
+    command.arg("--adaptive-logic=predictive");
     if let Some(height) = max_height.filter(|&h| h > 0) {
         command.arg(format!("--adaptive-maxheight={height}"));
     }
@@ -1890,8 +1890,8 @@ mod tests {
         assert!(args.contains(&"--autofit=1920x1080".to_string()));
         assert!(args.contains(&"--cache=yes".to_string()));
         assert!(args.contains(&"--cache-pause=yes".to_string()));
-        assert!(args.contains(&"--cache-pause-wait=8".to_string()));
-        assert!(args.contains(&"--cache-pause-initial=yes".to_string()));
+        assert!(args.contains(&"--cache-pause-wait=2".to_string()));
+        assert!(args.contains(&"--cache-pause-initial=no".to_string()));
         assert!(args.contains(&"--demuxer-max-bytes=256M".to_string()));
         assert!(args.contains(&"--demuxer-readahead-secs=120".to_string()));
         assert!(args.contains(&"--demuxer-lavf-buffersize=1048576".to_string()));
@@ -1932,8 +1932,8 @@ mod tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
 
-        assert!(args.contains(&"--network-caching=10000".to_string()));
-        assert!(args.contains(&"--adaptive-logic=nearoptimal".to_string()));
+        assert!(args.contains(&"--network-caching=3000".to_string()));
+        assert!(args.contains(&"--adaptive-logic=predictive".to_string()));
         assert!(args.contains(&"--http-user-agent=VLC-Agent".to_string()));
         assert!(args.contains(&"--http-referrer=https://cdn.example.com".to_string()));
         assert!(!args.iter().any(|a| a.contains("CloudFront-Signature")));

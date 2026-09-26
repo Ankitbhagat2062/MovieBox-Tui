@@ -375,7 +375,8 @@ impl App {
             });
 
             let (effective_link, effective_subtitle) = if needs_proxy {
-                match crate::proxy::spawn_sidecar(&link, &headers, subtitle.as_deref()) {
+                match crate::proxy::spawn_sidecar(&link, &headers, subtitle.as_deref(), max_height)
+                {
                     Ok(local_url) => {
                         let sub_url =
                             if matches!(kind, crate::tui::state::PlayerKind::AndroidIntent) {
