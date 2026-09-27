@@ -145,13 +145,13 @@ impl FavoritesManager {
     pub fn is_favorite(&self, identity: &crate::models::SubjectIdentity<'_>) -> bool {
         if !identity.subject_id.is_empty() {
             let prov_canonical = crate::providers::models::ProviderKind::parse(identity.provider)
-                .map(|p| p.cache_key().to_string())
-                .unwrap_or_else(|| identity.provider.trim().to_ascii_lowercase());
-            if self.id_index.contains(&(
-                prov_canonical,
-                identity.subject_id.to_string(),
-                identity.stype,
-            )) {
+                .map(|p| p.cache_key())
+                .unwrap_or_else(|| identity.provider.trim());
+            if self.id_index.iter().any(|(p, id, st)| {
+                *st == identity.stype
+                    && p.eq_ignore_ascii_case(prov_canonical)
+                    && id == identity.subject_id
+            }) {
                 return true;
             }
         }

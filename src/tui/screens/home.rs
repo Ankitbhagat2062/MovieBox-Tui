@@ -1577,27 +1577,37 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     ((text_height.saturating_sub(2)) / 2, false)
                 };
 
-                let text_layout = if use_three_rows {
-                    Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Length(text_top_padding),
-                            Constraint::Length(1),
-                            Constraint::Length(1),
-                            Constraint::Length(1),
-                            Constraint::Min(0),
-                        ])
-                        .split(text_area)
+                let r1_y = text_area.y.saturating_add(text_top_padding);
+                let r2_y = r1_y.saturating_add(1);
+                let r3_y = r2_y.saturating_add(1);
+                let text_max_y = text_area.bottom();
+
+                let row1_rect = if r1_y < text_max_y {
+                    Rect {
+                        y: r1_y,
+                        height: 1,
+                        ..text_area
+                    }
                 } else {
-                    Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Length(text_top_padding),
-                            Constraint::Length(1),
-                            Constraint::Length(1),
-                            Constraint::Min(0),
-                        ])
-                        .split(text_area)
+                    Rect::default()
+                };
+                let row2_rect = if r2_y < text_max_y {
+                    Rect {
+                        y: r2_y,
+                        height: 1,
+                        ..text_area
+                    }
+                } else {
+                    Rect::default()
+                };
+                let row3_rect = if use_three_rows && r3_y < text_max_y {
+                    Rect {
+                        y: r3_y,
+                        height: 1,
+                        ..text_area
+                    }
+                } else {
+                    Rect::default()
                 };
 
                 let is_active_selection = is_selected && !is_editing && !modal_active;
@@ -1702,10 +1712,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     row1_spans.extend(b_spans);
                 }
 
-                if text_layout[1].height > 0 {
+                if row1_rect.height > 0 {
                     frame.render_widget(
                         Paragraph::new(ratatui::text::Line::from(row1_spans)),
-                        text_layout[1],
+                        row1_rect,
                     );
                 }
 
@@ -1878,21 +1888,17 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     }
                 }
 
-                if text_layout[2].height > 0 && row2_spans.len() > 1 {
+                if row2_rect.height > 0 && row2_spans.len() > 1 {
                     frame.render_widget(
                         Paragraph::new(ratatui::text::Line::from(row2_spans)),
-                        text_layout[2],
+                        row2_rect,
                     );
                 }
 
-                if use_three_rows
-                    && text_layout.len() > 3
-                    && text_layout[3].height > 0
-                    && row3_spans.len() > 1
-                {
+                if row3_rect.height > 0 && row3_spans.len() > 1 {
                     frame.render_widget(
                         Paragraph::new(ratatui::text::Line::from(row3_spans)),
-                        text_layout[3],
+                        row3_rect,
                     );
                 }
             }

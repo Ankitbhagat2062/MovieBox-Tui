@@ -128,8 +128,9 @@ async fn main() -> std::io::Result<()> {
     }));
 
     let stdout = std::io::stdout();
-    let backend =
-        ratatui_crossterm::CrosstermBackend::new(std::io::BufWriter::with_capacity(65536, stdout));
+    let backend = ratatui_crossterm::CrosstermBackend::new(std::io::BufWriter::with_capacity(
+        262_144, stdout,
+    ));
     let mut terminal = ratatui::Terminal::new(backend)?;
     crossterm::terminal::enable_raw_mode()?;
     let _guard = TerminalGuard;

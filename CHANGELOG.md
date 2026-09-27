@@ -18,6 +18,11 @@
   - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
   - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.
   - Accelerated DASH stream downloads by passing `--concurrent-fragments 5` to `yt-dlp` with resilient retry policies (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`) in `src/tui/app/download.rs`, overcoming per-connection CDN bandwidth throttling and preventing transient packet drops.
+- **TUI Rendering & Event Loop Performance**:
+  - Expanded terminal standard output `BufWriter` capacity from 64 KB to 256 KB in `src/main.rs`, enabling atomic frame flushes and eliminating visual tearing during graphical Sixel and Kitty poster transfers.
+  - Replaced allocating `to_string()` hash set checks in `src/favorites.rs` with zero-allocation borrowed string comparisons in `is_favorite`, eliminating 400+ heap allocations per second during search grid rendering.
+  - Eliminated redundant 100ms idle tick redraws on static home screens in `src/tui/app/system.rs`, dropping idle CPU consumption to zero.
+  - Replaced per-card `Layout::split` invocations in `src/tui/screens/home.rs` with direct row arithmetic calculations, avoiding repeated layout solver overhead across search result slots.
 ### Changed
 - **Documentation & Cross-Platform Terminal Compatibility**:
   - Documented native Windows Terminal Sixel image support requirements (`v1.22+` via Microsoft Store) in `docs/cross-platform.md` and `README.md`, clarifying that no third-party terminal or configuration is required on Windows.
