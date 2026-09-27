@@ -1422,27 +1422,14 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
 
                 let codec_str = codec.to_uppercase();
                 let tags = extract_media_tags(&file.filename, &codec_str);
-                let mut tag_parts = Vec::new();
-                if let Some(hdr) = tags.hdr {
-                    tag_parts.push(hdr);
-                }
-                if let Some(codec_tag) = tags.codec {
-                    tag_parts.push(codec_tag);
+                let media_tag_spans =
+                    crate::tui::widgets::render_media_tag_spans(&tags, theme, state.basic_terminal);
+                let tags_cell = if !media_tag_spans.is_empty() {
+                    Cell::from(ratatui::text::Line::from(media_tag_spans))
                 } else if codec != "None" && !codec.is_empty() {
-                    tag_parts.push(codec_str.as_str());
-                }
-                if let Some(audio) = tags.audio {
-                    tag_parts.push(audio);
-                }
-                if let Some(source) = tags.source {
-                    tag_parts.push(source);
-                }
-                let sep = if state.basic_terminal { " - " } else { " · " };
-                let tags_or_codec = tag_parts.join(sep);
-                let tags_col = if tags_or_codec.is_empty() {
-                    "-".to_string()
+                    Cell::from(Span::styled(codec_str, secondary_style))
                 } else {
-                    tags_or_codec
+                    Cell::from(Span::styled("-", secondary_style))
                 };
 
                 let cells: Vec<Cell> = if is_ultra_compact {
@@ -1462,7 +1449,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     vec![
                         Cell::from(ratatui::text::Line::from(res_badge)),
                         Cell::from(Span::styled(size_formatted.clone(), primary_style)),
-                        Cell::from(Span::styled(tags_col, secondary_style)),
+                        tags_cell.clone(),
                         Cell::from(Span::styled(upload_by, secondary_style)),
                         Cell::from(Span::styled(release_title, primary_style)),
                     ]
@@ -1470,7 +1457,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     vec![
                         Cell::from(ratatui::text::Line::from(res_badge)),
                         Cell::from(Span::styled(size_formatted.clone(), primary_style)),
-                        Cell::from(Span::styled(tags_col, secondary_style)),
+                        tags_cell,
                         Cell::from(Span::styled(release_title, primary_style)),
                     ]
                 };

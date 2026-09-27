@@ -55,8 +55,6 @@ impl App {
         self.state.search_list_state.select(None);
         self.state.resource_list_state.select(None);
         self.state.dirty = true;
-        self.state
-            .set_status_default(format!("Provider: {}", provider.label()));
         self.persist_config();
         if provider == ProviderKind::MovieBox {
             let client = self.service.client.clone();

@@ -7,6 +7,7 @@
   - Gated background search pagination in `src/tui/app/navigation.rs` so arrow navigation on result sets smaller than the visible viewport never triggers background page fetches.
   - Added `search_exhausted` tracking in `src/tui/state.rs` and `src/tui/app/requests.rs`, stopping pagination crawls when provider search returns fewer than 15 items or zero query-matching results.
   - Preserved stable card slot positions during search pagination in `src/tui/app/requests.rs` by appending subsequent page items to the list rather than re-sorting the entire array out from under the cursor.
+  - Removed redundant "Provider: <name>" status message override from the search bar on provider switch in `src/tui/app/navigation.rs`, preserving the clean search placeholder while the active provider pill displays on the right.
 - **Media Playback & Buffering Engine**:
   - Prioritized native desktop media players (`mpv`, `VLC`) over Android intent openers in `src/player.rs` when an active X11/Wayland display server (`$DISPLAY`, `$WAYLAND_DISPLAY`) is detected, preventing Ubuntu Xfce (udroid/PRoot) and Termux:X11 desktop sessions from dispatching playback to external Android app choosers.
   - Configured `mpv` and `IINA` with initial cache buffering (`--cache-pause-initial=yes`) and resilient re-buffer cushion (`--cache-pause-wait=10`) in `src/player.rs`, preventing repeated 2-second stutter loops on bandwidth-constrained CDN streams.
@@ -23,6 +24,7 @@
   - Replaced allocating `to_string()` hash set checks in `src/favorites.rs` with zero-allocation borrowed string comparisons in `is_favorite`, eliminating 400+ heap allocations per second during search grid rendering.
   - Eliminated redundant 100ms idle tick redraws on static home screens in `src/tui/app/system.rs`, dropping idle CPU consumption to zero.
   - Replaced per-card `Layout::split` invocations in `src/tui/screens/home.rs` with direct row arithmetic calculations, avoiding repeated layout solver overhead across search result slots.
+  - Rendered stream media tags (HDR, ATMOS, 5.1, HEVC, AV1, WEB-DL) in `src/tui/screens/details.rs` using styled surface pill spans instead of raw concatenated text, pruning transient string vectors in the table mapping loop.
 ### Changed
 - **Documentation & Cross-Platform Terminal Compatibility**:
   - Documented native Windows Terminal Sixel image support requirements (`v1.22+` via Microsoft Store) in `docs/cross-platform.md` and `README.md`, clarifying that no third-party terminal or configuration is required on Windows.
