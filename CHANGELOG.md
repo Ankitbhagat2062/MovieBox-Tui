@@ -16,6 +16,9 @@
 - **Download Engine & Subprocess Diagnostics**:
   - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
   - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.
+### Changed
+- **Documentation & Cross-Platform Terminal Compatibility**:
+  - Documented native Windows Terminal Sixel image support requirements (`v1.22+` via Microsoft Store) in `docs/cross-platform.md` and `README.md`, clarifying that no third-party terminal or configuration is required on Windows.
 
 ## [0.1.24] - 2026-09-24
 

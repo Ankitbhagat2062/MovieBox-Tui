@@ -27,7 +27,7 @@ MovieBox-TUI runs on **macOS**, **Linux**, **Windows**, and **Android (Termux)**
 
 MovieBox-TUI automatically adapts to your terminal emulator:
 
-- **Images & Posters**: Automatically detects Kitty graphics, Sixel, and iTerm2 protocols (Ghostty, Kitty, WezTerm, iTerm2, foot, Alacritty). Terminals without image support display clean text containers. Disable with `MOVIEBOX_NO_IMAGE=1`.
+- **Images & Posters**: Automatically detects Kitty graphics, Sixel, and iTerm2 protocols (Ghostty, Kitty, WezTerm, iTerm2, foot, Alacritty, and Windows Terminal v1.22+). Windows Terminal supports Sixel posters natively without extra software once updated to version 1.22 or newer via the Microsoft Store. Terminals without image support display clean text containers (`No Art`). Disable with `MOVIEBOX_NO_IMAGE=1` or force with `MOVIEBOX_IMAGE_PROTOCOL=sixel`.
 - **Colors & Themes**: Auto-detects 24-bit TrueColor, 256-color palettes, and high-contrast monochrome mode (`NO_COLOR=1`).
 - **Keyboard Navigation**: Uses the Kitty keyboard protocol on supported emulators. Mobile Termux keyboards use standard ANSI input to avoid character garbage.
 - **Window Titles**: Automatically updates terminal window titles based on current title and screen mode.

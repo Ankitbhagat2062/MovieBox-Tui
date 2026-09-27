@@ -41,12 +41,12 @@ Requires at least one supported media player installed on your system:
 
 Poster rendering automatically adapts to your terminal environment:
 
-- **Graphics-capable terminals:** Displays high-resolution movie and series posters natively.
-- **Standard terminals:** Displays clean, structured text placeholders automatically.
+- **Graphics-capable terminals:** Displays high-resolution movie and series posters natively (Ghostty, Kitty, WezTerm, iTerm2, foot, and Windows Terminal v1.22+). Windows requires no third-party terminal; updating built-in Windows Terminal to v1.22+ via the Microsoft Store enables native poster rendering.
+- **Standard terminals:** Displays clean, structured text placeholders (`No Art`) automatically.
 
 ### Optional Dependencies
-
 - **`yt-dlp` & `ffmpeg`:** Required only when downloading DASH streams from the MovieBox provider. All other providers download directly through the built-in HTTP engine.
+
 ## Installation
 
 ### macOS and Linux
