@@ -11,18 +11,19 @@ Override with the `MOVIEBOX_CACHE_DIR` environment variable.
 
 ## Binary Cache Architecture
 
-Cache files use a structured MessagePack envelope preceded by a 4-byte magic signature (`MBXC`):
+Cache files use a structured MessagePack envelope preceded by a 4-byte magic signature (`MBC1`):
 
 ```text
-[ 0x4D 0x42 0x58 0x43 ] [ MessagePack Encoded Envelope ]
+[ 0x4D 0x42 0x43 0x31 ] [ MessagePack Encoded Envelope ]
 ```
 
-The envelope stores the creation timestamp (`u64`) alongside the serialized payload. On read, if the timestamp exceeds the item's TTL, the cache is invalidated and refetched.
+The envelope stores the expiration timestamp (`expires_at: u64`) alongside the serialized payload. On read, if the current time exceeds `expires_at` or the file age exceeds the TTL, the cache is invalidated and refetched.
 
 ## Cache TTLs
 
 | Namespace | TTL | Description |
 | :--- | :--- | :--- |
+| `homepage` | 1 Hour | Trending, popular, and curated `/browse` feeds |
 | `search` | 24 Hours | Search query results per provider |
 | `details` | Dynamic (CloudFront TTL) | Subject details, cast, and signed streaming cookies (auto-adapts to upstream cookie expiration, min 1h, max 24h) |
 | `streams` | Dynamic (Cookie Expiration) | Direct streaming and DASH manifest URLs (auto-adapts to `CloudFront-Policy` and `Edge-Cache-Cookie` expiration timestamp `:t=`, min 1m, max 2h) |

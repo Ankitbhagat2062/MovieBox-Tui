@@ -6,13 +6,9 @@ MovieBox-TUI is available across macOS, Linux, Windows, and Android (Termux).
 
 ## macOS and Linux
 
-Open Terminal and run:
+### Homebrew (macOS)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash
-```
-
-Or via Homebrew (macOS):
+If you have [Homebrew](https://brew.sh/):
 
 ```bash
 brew tap mesamirh/moviebox-tui https://github.com/mesamirh/MovieBox-Tui
@@ -22,22 +18,36 @@ brew install moviebox-tui
 > [!NOTE]
 > If Homebrew prompts for tap verification on initial install, run `brew trust mesamirh/moviebox-tui`.
 
+### Direct Terminal Script
+
+No package manager required. Open Terminal and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash
+```
+
 ---
 
 ## Windows
 
-### Scoop Package Manager
+### Scoop Package Manager (Recommended)
+
+If you have [Scoop](https://scoop.sh/):
 
 ```powershell
 scoop bucket add moviebox https://github.com/mesamirh/MovieBox-Tui
 scoop install moviebox-tui
 ```
 
-### Automated PowerShell Script
+### Direct PowerShell Script
+
+No package manager required. Open **PowerShell** and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.ps1 | iex
 ```
+
+> **SmartScreen prompt:** If Windows displays *"Windows protected your PC"*, click **More info** → **Run anyway**.
 ---
 
 ## Android (Termux)

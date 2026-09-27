@@ -9,7 +9,7 @@ src/
   main.rs            Entry point. Logging init, panic hook, raw mode, alternate
                      screen, TerminalGuard, App::new + App::run.
   lib.rs             Crate root: declares pub mod cache/config/download/favorites/
-                     history/logging/models/net/player/providers/service/tui/updater.
+                     history/logging/models/net/player/providers/proxy/service/tui/updater.
 
   cache.rs           Disk cache: provider-namespaced directories, TTL expiry,
                      atomic temp-file writes, payload validation, background purge.
@@ -66,6 +66,7 @@ src/
       client.rs      Search/details/stream resolution + preflight validation.
       hubcloud.rs    Mirror resolver: fetch drive pages, extract playable links.
       parser.rs      HTML parsing into typed CatalogItem/MediaDetails/Release.
+    dramachi/        Asian dramas and series provider (client + parser).
     bdix/
       common.rs      Shared BDIX resolution, audio language, and codec detection heuristics.
       circleftp/     BDIX CircleFTP provider (client + parser).

@@ -27,5 +27,5 @@ The Addon Manager lets you add, enable, or remove addon manifests:
 ## Storage
 
 Installed addons are saved to `addons_config.json` in your configuration directory:
-- **Linux / macOS**: `~/.config/moviebox-tui/addons_config.json`
+- **Linux / macOS / Termux**: `~/.config/moviebox-tui/addons_config.json`
 - **Windows**: `%APPDATA%\MovieBox-Tui\addons_config.json`

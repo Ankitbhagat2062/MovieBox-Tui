@@ -17,66 +17,53 @@
 
 ## Características
 
-- **Streaming bajo demanda**: Reproduce películas, series, anime y dramas asiáticos a través de múltiples proveedores nativos y complementos comunitarios de Stremio.
-- **TV en vivo e IPTV**: Importa listas M3U personalizadas para buscar canales, explorar categorías y ver televisión en directo.
-- **Selección de calidad y resolución**: Elige la resolución deseada (`1080p`, `720p`, `480p`) directamente en la pantalla de detalles.
-- **Reproducción acelerada por hardware**: Se ejecuta directamente en tu reproductor multimedia local favorito con autenticación y envío automático de cookies.
-- **Descargador multisegmento**: Descarga episodios individuales o temporadas completas en paralelo, con soporte para pausar y reanudar por rangos HTTP.
-- **Subtítulos automáticos**: Busca y sincroniza subtítulos en tu idioma preferido de forma automática.
-- **Interfaz de terminal interactiva**: Soporte completo para teclado y ratón, con navegación estilo vim y sugerencias automáticas de comandos.
-- **Pósters visuales y temas**: Renderiza carátulas directamente en tu terminal, con 9 temas integrados y detección automática de modo claro y oscuro.
-- **Biblioteca y seguimiento de progreso**: Marca favoritos, registra el historial de visualización y reanuda la reproducción exactamente donde la dejaste.
-- **Multiplataforma y privado**: Funciona de forma nativa en macOS, Linux, Windows y Android (Termux) sin telemetría ni recopilación de datos.
+- **Streaming:** Películas, series, anime, dramas asiáticos y complementos comunitarios de Stremio en múltiples proveedores nativos.
+- **TV en vivo:** Importación de listas M3U con categorías de canales, soporte EPG y búsqueda.
+- **Selector de resolución:** Selección directa de calidad de stream (`4K`, `1080p`, `720p`, `480p`, `Auto`) antes de reproducir.
+- **Reproductores por hardware:** Inicio directo en `mpv`, `VLC` o `IINA` con reenvío de cabeceras de autenticación y cookies.
+- **Descargador por lotes:** Descargador concurrente multisegmento con pausa y reanudación por rangos HTTP para episodios y temporadas completas.
+- **Selector de subtítulos:** Pistas de subtítulos en múltiples idiomas extraídas y seleccionables mediante un selector interactivo antes de reproducir o descargar.
+- **Interfaz de terminal:** Navegación Vim, soporte de ratón, paleta de comandos (`/help`, `/settings`) y 9 temas integrados.
+- **Carátulas:** Renderizado nativo de pósters con Kitty, Sixel e iTerm2 con alternativa automática en texto.
+- **Reanudación y biblioteca:** Marcas de tiempo de continuar viendo, historial y favoritos almacenados localmente en disco. Cero telemetría.
 
 ## Requisitos previos
 
-### Reproductores multimedia compatibles
-
-Requiere tener instalado al menos un reproductor multimedia compatible en tu sistema:
-
-- **Escritorio (macOS, Linux, Windows):** [mpv](https://mpv.io/), [VLC](https://www.videolan.org/), o [IINA](https://iina.io/) *(macOS)*.
-- **Android (Termux):** Cualquier reproductor de video externo ([VLC](https://play.google.com/store/apps/details?id=org.videolan.vlc), Just Player, o MX Player).
-
-### Gráficos en la terminal (Pósters)
-
-La visualización de pósters se adapta automáticamente a tu terminal:
-
-- **Terminales con soporte gráfico:** Muestra pósters de películas y series en alta resolución de forma nativa.
-- **Terminales estándar:** Muestra marcadores de posición de texto limpios y estructurados.
-
-### Dependencias opcionales
-
-- **`yt-dlp` y `ffmpeg`:** Requeridos únicamente al descargar transmisiones DASH del proveedor MovieBox. El resto de proveedores descargan directamente a través del motor HTTP integrado.
+- **Reproductor multimedia:** `mpv`, `VLC` o `IINA` (macOS) / cualquier reproductor de video externo (Android).
+- **Pósters:** Terminal con soporte Sixel, Kitty o iTerm2 (Ghostty, Kitty, WezTerm, iTerm2, foot, Windows Terminal v1.22+).
+- **Descargas DASH:** `yt-dlp` y `ffmpeg` (requeridos solo para descargas DASH de MovieBox).
 
 ## Instalación
 
 ### macOS y Linux
 
-Abre la terminal y ejecuta:
-```bash
-curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash
-```
-
-O mediante Homebrew (macOS):
+Si tienes [Homebrew](https://brew.sh/) en macOS:
 ```bash
 brew tap mesamirh/moviebox-tui https://github.com/mesamirh/MovieBox-Tui
 brew install moviebox-tui
 ```
-> [!NOTE]
-> Si Homebrew solicita verificación de tap en la instalación inicial, ejecuta `brew trust mesamirh/moviebox-tui`.
+
+> **Nota:** Si Homebrew solicita verificación de tap en la instalación inicial, ejecuta `brew trust mesamirh/moviebox-tui`.
+
+Instalación directa mediante Terminal (macOS y Linux, sin necesidad de gestor de paquetes):
+```bash
+curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash
+```
 
 ### Windows
 
-A través de Scoop:
+Si tienes [Scoop](https://scoop.sh/) (recomendado):
 ```powershell
 scoop bucket add moviebox https://github.com/mesamirh/MovieBox-Tui
 scoop install moviebox-tui
 ```
 
-O mediante el script automatizado de PowerShell:
+Instalación directa mediante PowerShell (sin necesidad de gestor de paquetes):
 ```powershell
 irm https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.ps1 | iex
 ```
+
+> **Aviso de SmartScreen:** Si Windows muestra *"Windows protegió su PC"*, haz clic en **Más información** → **Ejecutar de todas formas**.
 
 ### Android (Termux)
 
@@ -117,27 +104,14 @@ gh attestation verify <archive-file> -R mesamirh/MovieBox-Tui
 </details>
 
 <details>
-<summary><b>Desinstalación</b></summary>
+<summary><b>Desinstalar</b></summary>
 
-#### Instalador automatizado (macOS, Linux, Windows, Android)
+Vuelve a ejecutar el comando de instalación (`curl ... | bash` o `irm ... | iex`) y selecciona `2) Uninstall`.
 
-Simplemente vuelve a ejecutar el comando de instalación original (`curl ... | bash` o `irm ... | iex`). Cuando MovieBox-TUI ya está instalado, el instalador lo detecta y muestra un menú interactivo:
-
-```text
-MovieBox-TUI is already installed.
-What would you like to do?
-  1) Reinstall / Update to latest version
-  2) Uninstall
-  3) Cancel
-```
-
-Introduce `2` para eliminar completamente MovieBox-TUI.
-
-#### Gestores de paquetes
-
+O mediante gestor de paquetes:
 ```bash
-brew uninstall moviebox-tui     # Homebrew (macOS)
-scoop uninstall moviebox-tui    # Scoop (Windows)
+brew uninstall moviebox-tui     # Homebrew
+scoop uninstall moviebox-tui    # Scoop
 cargo uninstall moviebox-tui    # Cargo
 ```
 
@@ -160,7 +134,7 @@ Las guías completas y referencias de arquitectura están disponibles en [**mesa
 | :--- | :--- |
 | [Teclado y Controles](docs/controls.md) | Atajos de teclado, navegación vim, búsqueda y comandos |
 | [Configuración](docs/config.md) | Opciones de configuración, personalización de temas y variables de entorno |
-| [Proveedores de Contenido](docs/providers.md) | Scrapers nativos (MovieBox, Dramachi, BDIX) y extractores de stream |
+| [Proveedores de Contenido](docs/providers.md) | Scrapers nativos (MovieBox, 4KHDHub, Dramachi, BDIX) |
 | [Complementos de Stremio](docs/addons-mode.md) | Instalación de addons comunitarios, URLs de manifiestos y resolución de streams |
 | [Reproductores Multimedia](docs/players.md) | Detección de reproductores, opciones de inicio y aceleración por hardware |
 | [TV en vivo e IPTV](docs/tv-mode.md) | Importación de listas M3U, búsqueda de canales y streaming en vivo |

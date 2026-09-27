@@ -17,66 +17,53 @@
 
 ## खास फीचर्स
 
-- **ऑन-डिमांड स्ट्रीमिंग**: कई नेटिव प्रोवाइडर्स और कम्युनिटी Stremio ऐड-ऑन्स से फिल्में, टीवी सीरीज, एनीमे और एशियन ड्रामा स्ट्रीम करें।
-- **लाइव टीवी और IPTV**: चैनल्स सर्च करने, कैटेगरी ब्राउज करने और लाइव टेलीविजन स्ट्रीम करने के लिए कस्टम M3U प्लेलिस्ट URL इम्पोर्ट करें।
-- **क्वालिटी और रेजोल्यूशन चयन**: डिटेल्स स्क्रीन से सीधे अपनी पसंदीदा स्ट्रीम रेजोल्यूशन (`1080p`, `720p`, `480p`) चुनें।
-- **हार्डवेयर त्वरित प्लेबैक**: ऑटोमैटिक ऑथेंटिकेशन और कुकी फॉरवर्डिंग के साथ सीधे अपने पसंदीदा स्थानीय मीडिया प्लेयर में चलाएं।
-- **मल्टी-सेगमेंट डाउनलोडर**: HTTP रेंज पॉज और रिज्यूम सपोर्ट के साथ व्यक्तिगत एपिसोड या पूरे सीजन एक साथ डाउनलोड करें।
-- **ऑटोमैटिक सबटाइटल**: आपकी पसंदीदा भाषा में सबटाइटल अपने आप खोजकर सिंक्रोनाइज़ करता है।
-- **इंटरैक्टिव टर्मिनल UI**: vim नेविगेशन और कमांड ऑटो-सजेशन के साथ फुल कीबोर्ड और माउस सपोर्ट।
-- **विज़ुअल पोस्टर और थीम्स**: 9 इन-बिल्ट थीम्स और ऑटोमैटिक लाइट/डार्क डिटेक्शन के साथ सीधे टर्मिनल में कवर आर्ट रेंडर करता है।
-- **लाइब्रेरी और प्रोग्रेस ट्रैकिंग**: पसंदीदा स्टार करें, वॉच हिस्ट्री ट्रैक करें और वहीं से शुरू करें जहां आपने छोड़ा था।
-- **क्रॉस-प्लेटफॉर्म और प्राइवेट**: बिना किसी टेलीमेट्री या डेटा कलेक्शन के macOS, Linux, Windows और Android (Termux) पर नेटिव रूप से चलता है।
+- **स्ट्रीमिंग:** कई नेटिव प्रोवाइडर्स और कम्युनिटी Stremio ऐड-ऑन्स से फिल्में, टीवी सीरीज, एनीमे और एशियन ड्रामा।
+- **लाइव टीवी:** चैनल कैटेगरी, EPG सपोर्ट और सर्च के साथ M3U प्लेलिस्ट इम्पोर्ट।
+- **रेजोल्यूशन पिकर:** प्लेबैक से पहले सीधे स्ट्रीम क्वालिटी (`4K`, `1080p`, `720p`, `480p`, `Auto`) का चयन।
+- **हार्डवेयर प्लेयर्स:** कस्टम ऑथेंटिकेशन हेडर और कुकी फॉरवर्डिंग के साथ `mpv`, `VLC`, या `IINA` में सीधा लॉन्च।
+- **बैच डाउनलोडर:** एपिसोड और पूरे सीजन के लिए HTTP रेंज पॉज और रिज्यूम के साथ मल्टी-सेगमेंट डाउनलोडर।
+- **सबटाइटल पिकर:** प्लेबैक या डाउनलोड से पहले इंटरैक्टिव पिकर के माध्यम से बहु-भाषा सबटाइटल ट्रैक का चयन।
+- **टर्मिनल UI:** Vim नेविगेशन, माउस इंटरैक्शन, स्लैश कमांड पैलेट (`/help`, `/settings`), और 9 इन-बिल्ट थीम्स।
+- **कवर आर्ट:** ऑटोमैटिक टेक्स्ट फॉलबैक के साथ नेटिव Kitty, Sixel और iTerm2 पोस्टर रेंडरिंग।
+- **रिज्यूम और लाइब्रेरी:** कंटिन्यू-वॉचिंग टाइमस्टैम्प, वॉच हिस्ट्री और फेवरेट्स स्थानीय डिस्क पर सुरक्षित। शून्य टेलीमेट्री।
 
 ## पूर्व-आवश्यकताएं
 
-### समर्थित मीडिया प्लेयर
-
-आपके सिस्टम पर कम से कम एक समर्थित मीडिया प्लेयर इंस्टॉल होना आवश्यक है:
-
-- **डेस्कटॉप (macOS, Linux, Windows):** [mpv](https://mpv.io/), [VLC](https://www.videolan.org/), या [IINA](https://iina.io/) *(macOS)*।
-- **एंड्रॉइड (Termux):** कोई भी बाहरी वीडियो प्लेयर ([VLC](https://play.google.com/store/apps/details?id=org.videolan.vlc), Just Player, या MX Player)।
-
-### टर्मिनल ग्राफिक्स (पोस्टर)
-
-पोस्टर रेंडरिंग आपके टर्मिनल वातावरण के अनुसार अपने आप अनुकूलित हो जाती है:
-
-- **ग्राफिक्स-सक्षम टर्मिनल:** हाई-रेजोल्यूशन मूवी और सीरीज पोस्टर नेटिव रूप से दिखाता है।
-- **सामान्य टर्मिनल:** साफ और स्ट्रक्चर्ड टेक्स्ट प्लेसहोल्डर अपने आप दिखाता है।
-
-### वैकल्पिक निर्भरताएं
-
-- **`yt-dlp` और `ffmpeg`:** केवल MovieBox प्रोवाइडर से DASH स्ट्रीम्स डाउनलोड करने के लिए आवश्यक। बाकी सभी प्रोवाइडर्स सीधे इन-बिल्ट HTTP इंजन से डाउनलोड होते हैं।
+- **मीडिया प्लेयर:** `mpv`, `VLC`, या `IINA` (macOS) / कोई भी बाहरी वीडियो प्लेयर (Android)।
+- **पोस्टर:** Sixel, Kitty, या iTerm2 सपोर्ट वाला टर्मिनल (Ghostty, Kitty, WezTerm, iTerm2, foot, Windows Terminal v1.22+)।
+- **DASH डाउनलोड:** `yt-dlp` और `ffmpeg` (केवल MovieBox DASH डाउनलोड के लिए आवश्यक)।
 
 ## इंस्टॉलेशन
 
 ### macOS और Linux
 
-टर्मिनल खोलें और चलाएं:
-```bash
-curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash
-```
-
-या Homebrew से (macOS):
+यदि आपके पास macOS पर [Homebrew](https://brew.sh/) है:
 ```bash
 brew tap mesamirh/moviebox-tui https://github.com/mesamirh/MovieBox-Tui
 brew install moviebox-tui
 ```
-> [!NOTE]
-> यदि Homebrew पहली बार इंस्टॉल करते समय वेरिफिकेशन मांगे, तो `brew trust mesamirh/moviebox-tui` चलाएं।
+
+> **नोट:** पहली बार इंस्टॉल करते समय यदि Homebrew वेरिफिकेशन मांगे, तो `brew trust mesamirh/moviebox-tui` चलाएं।
+
+टर्मिनल से सीधे इंस्टॉल (macOS और Linux, किसी पैकेज मैनेजर की आवश्यकता नहीं):
+```bash
+curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash
+```
 
 ### Windows
 
-Scoop से:
+यदि आपके पास [Scoop](https://scoop.sh/) है (अनुशंसित):
 ```powershell
 scoop bucket add moviebox https://github.com/mesamirh/MovieBox-Tui
 scoop install moviebox-tui
 ```
 
-या ऑटोमेटेड PowerShell स्क्रिप्ट से:
+PowerShell स्क्रिप्ट से सीधे इंस्टॉल (किसी पैकेज मैनेजर की आवश्यकता नहीं):
 ```powershell
 irm https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.ps1 | iex
 ```
+
+> **SmartScreen प्रॉम्ट:** यदि Windows *"Windows protected your PC"* दिखाता है, तो **More info** → **Run anyway** पर क्लिक करें।
 
 ### Android (Termux)
 
@@ -117,27 +104,14 @@ gh attestation verify <archive-file> -R mesamirh/MovieBox-Tui
 </details>
 
 <details>
-<summary><b>अनइंस्टॉलेशन (Uninstallation)</b></summary>
+<summary><b>अनइंस्टॉल (Uninstall)</b></summary>
 
-#### ऑटोमेटेड इंस्टॉलर (macOS, Linux, Windows, Android)
+इंस्टॉल कमांड (`curl ... | bash` या `irm ... | iex`) फिर से चलाएं और `2) Uninstall` चुनें।
 
-बस अपना मूल इंस्टॉलेशन कमांड (`curl ... | bash` या `irm ... | iex`) फिर से चलाएं। जब MovieBox-TUI पहले से इंस्टॉल होता है, तो इंस्टॉलर इसे अपने आप पहचान लेता है और एक मेनू प्रदर्शित करता है:
-
-```text
-MovieBox-TUI is already installed.
-What would you like to do?
-  1) Reinstall / Update to latest version
-  2) Uninstall
-  3) Cancel
-```
-
-MovieBox-TUI को पूरी तरह हटाने के लिए `2` दर्ज करें।
-
-#### पैकेज मैनेजर्स
-
+या पैकेज मैनेजर से:
 ```bash
-brew uninstall moviebox-tui     # Homebrew (macOS)
-scoop uninstall moviebox-tui    # Scoop (Windows)
+brew uninstall moviebox-tui     # Homebrew
+scoop uninstall moviebox-tui    # Scoop
 cargo uninstall moviebox-tui    # Cargo
 ```
 
@@ -160,7 +134,7 @@ moviebox-tui
 | :--- | :--- |
 | [कीबोर्ड और कंट्रोल्स](docs/controls.md) | कीबाइंडिंग्स, vim नेविगेशन, सर्च और शॉर्टकट्स |
 | [कॉन्फ़िगरेशन](docs/config.md) | सेटिंग्स, थीम कस्टमाइज़ेशन और कॉन्फ़िगरेशन विकल्प |
-| [कंटेंट प्रोवाइडर्स](docs/providers.md) | नेटिव स्क्रेपर्स (MovieBox, Dramachi, BDIX) और स्ट्रीम एक्सट्रैक्टर्स |
+| [कंटेंट प्रोवाइडर्स](docs/providers.md) | नेटिव स्क्रेपर्स (MovieBox, 4KHDHub, Dramachi, BDIX) |
 | [Stremio ऐड-ऑन्स](docs/addons-mode.md) | कम्युनिटी ऐड-ऑन इंस्टॉलेशन, मैनिफेस्ट URL और स्ट्रीम रेजोल्यूशन |
 | [हार्डवेयर प्लेयर्स](docs/players.md) | प्लेयर डिटेक्शन, लॉन्च ऑप्शंस और हार्डवेयर एक्सेलेरेशन |
 | [लाइव टीवी और IPTV](docs/tv-mode.md) | M3U प्लेलिस्ट इम्पोर्ट, चैनल सर्च और लाइव स्ट्रीमिंग |

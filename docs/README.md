@@ -17,36 +17,21 @@
 
 ## Features
 
-- **On Demand Streaming**: Stream movies, TV series, anime, and Asian dramas across multiple native providers and community Stremio addons.
-- **Live TV & IPTV**: Import custom M3U playlist URLs to search channels, browse categories, and stream live television.
-- **Quality & Resolution Selection**: Choose preferred stream resolutions (`1080p`, `720p`, `480p`) directly from the details screen.
-- **Hardware Accelerated Playback**: Plays directly in your preferred local media player with automatic authentication and cookie forwarding.
-- **Multi Segment Downloader**: Download individual episodes or full seasons concurrently with HTTP range pause and resume support.
-- **Automatic Subtitles**: Searches and synchronizes subtitles in your preferred language automatically.
-- **Interactive Terminal UI**: Full keyboard and mouse support with vim navigation and command auto suggestions.
-- **Visual Posters & Themes**: Renders cover art directly in your terminal, with 9 built-in themes and automatic light and dark detection.
-- **Library & Progress Tracking**: Star favorites, track watch history, and resume playback where you left off.
-- **Cross Platform & Private**: Runs natively on macOS, Linux, Windows, and Android (Termux) with zero telemetry or data collection.
+- **Streaming:** Movies, TV series, anime, Asian dramas, and community Stremio addons across multiple native providers.
+- **Live TV:** M3U playlist import with channel categories, EPG support, and search.
+- **Resolution Picker:** Direct stream quality selection (`4K`, `1080p`, `720p`, `480p`, `Auto`) before playback.
+- **Hardware Players:** Seamless launch in `mpv`, `VLC`, or `IINA` with custom auth header and cookie forwarding.
+- **Batch Downloader:** Multi-segment concurrent downloader with HTTP range pause and resume for episodes and full seasons.
+- **Subtitle Picker:** Multi-language subtitle tracks extracted and selectable via an interactive picker before playback or download.
+- **Terminal UI:** Vim navigation, mouse interaction, slash command palette (`/help`, `/settings`), and 9 built-in themes.
+- **Cover Art:** Native Kitty, Sixel, and iTerm2 poster rendering with automatic text fallback.
+- **Resume & Library:** Home deck with continue-watching timestamps, watch history, and favorites stored strictly on local disk. Zero telemetry.
 
 ## Prerequisites
 
-### Supported Media Players
-
-Requires at least one supported media player installed on your system:
-
-- **Desktop (macOS, Linux, Windows):** [mpv](https://mpv.io/), [VLC](https://www.videolan.org/), or [IINA](https://iina.io/) *(macOS)*.
-- **Android (Termux):** Any external video player ([VLC](https://play.google.com/store/apps/details?id=org.videolan.vlc), Just Player, or MX Player).
-
-### Terminal Graphics (Posters)
-
-Poster rendering automatically adapts to your terminal environment:
-
-- **Graphics-capable terminals:** Displays high-resolution movie and series posters natively (Ghostty, Kitty, WezTerm, iTerm2, foot, and Windows Terminal v1.22+). Windows requires no third-party terminal; updating built-in Windows Terminal to v1.22+ via the Microsoft Store enables native poster rendering.
-- **Standard terminals:** Displays clean, structured text placeholders (`No Art`) automatically.
-
-### Optional Dependencies
-
-- **`yt-dlp` & `ffmpeg`:** Required only when downloading DASH streams from the MovieBox provider. All other providers download directly through the built-in HTTP engine.
+- **Media Player:** `mpv`, `VLC`, or `IINA` (macOS) / any external video player (Android).
+- **Posters:** Terminal with Sixel, Kitty, or iTerm2 support (Ghostty, Kitty, WezTerm, iTerm2, foot, Windows Terminal v1.22+).
+- **DASH Downloads:** `yt-dlp` and `ffmpeg` (required only for MovieBox DASH downloads).
 ---
 
 ## Documentation Directory Map

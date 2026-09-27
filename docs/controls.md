@@ -38,7 +38,7 @@ Press `?` anywhere inside the application to open the interactive help dialog.
 
 ## Dialog & Modal Controls
 
-All popups (Themes, Providers, Players, TV Manager, Addon Manager) share standard navigation:
+All popups (Themes, Providers, Players, Resolution, Subtitles, TV Manager, Addon Manager) share standard navigation:
 
 - **`↑` / `↓` / `k` / `j`**: Navigate choices.
 - **`Home` / `End`**: Jump to first / last item.
@@ -84,7 +84,7 @@ All popups (Themes, Providers, Players, TV Manager, Addon Manager) share standar
 - **`b`**: Copy Homebrew update command to clipboard.
 - **`s`**: Copy Scoop update command to clipboard.
 - **`o`**: Open GitHub release notes in default browser.
-- **`Esc`**: Dismiss update prompt.
+- **`Esc` / `q`**: Dismiss update prompt.
 ## Slash Commands
 
 Type `/` in the search bar on the Home screen to trigger slash commands:

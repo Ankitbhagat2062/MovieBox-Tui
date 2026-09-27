@@ -4,7 +4,7 @@ This document describes the testing architecture, quality assurance procedures, 
 
 ## 1. Test Architecture
 
-The test suite comprises **447 automated tests across 12 test suites** (320 unit tests in `src/lib.rs` and 127 integration tests across 10 focused suites in `tests/`), running fully offline by default without mocking or live network dependencies.
+The test suite comprises **510 automated tests across 12 test suites** (381 unit tests in `src/lib.rs` and 129 integration tests across 10 focused suites in `tests/`), running fully offline by default without mocking or live network dependencies.
 The MovieBox-TUI test architecture follows a strict separation of concerns:
 
 ```text
@@ -73,10 +73,10 @@ cargo test --test tui_acceptance --all-features --locked
 cargo test --test history_audit --all-features --locked
 ```
 
-Run the opt-in live-network acceptance test:
+Run the opt-in live-network stream verification suite:
 
 ```bash
-MOVIEBOX_LIVE_TESTS=1 cargo test --test real_acceptance --all-features --locked -- --ignored
+cargo test --test live_stream_verification --all-features --locked -- --ignored
 ```
 
 ---

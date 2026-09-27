@@ -63,6 +63,7 @@ src/
 │   ├── models.rs                  # Provider traits (Provider, ReleaseProvider) & capabilities
 │   ├── moviebox/                  # CloudFront signed requests, token generation, & scraper
 │   ├── fourkhdhub/                # 4K releases, HTML parser, & HubCloud mirror resolver
+│   ├── dramachi/                  # Asian dramas and series scraper
 │   ├── bdix/                      # BDIX optical intranet scrapers (CircleFTP, DhakaFlix)
 │   │   └── common.rs              # Centralized codec, resolution, & language heuristics
 │   ├── addons/                    # Community Stremio HTTP addon manifest & stream aggregator
