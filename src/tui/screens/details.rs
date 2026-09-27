@@ -348,22 +348,46 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                 let error_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(crate::tui::overlay::border_type(state.basic_terminal))
-                    .border_style(theme.error)
+                    .border_style(if modal_active {
+                        theme.muted
+                    } else {
+                        theme.error
+                    })
                     .title(Line::from(vec![Span::styled(
                         " Error Loading Details ",
-                        theme.error.add_modifier(Modifier::BOLD),
+                        if modal_active {
+                            theme.muted
+                        } else {
+                            theme.error.add_modifier(Modifier::BOLD)
+                        },
                     )]));
 
                 let err_msg =
                     crate::tui::text::truncate_width(err, (box_width.saturating_sub(4)) as usize);
                 let mut text = vec![
                     Line::from(""),
-                    Line::from(Span::styled(err_msg, theme.text)),
+                    Line::from(Span::styled(
+                        err_msg,
+                        if modal_active {
+                            theme.muted
+                        } else {
+                            theme.text
+                        },
+                    )),
                     Line::from(""),
                 ];
-                let mut hint_spans = crate::tui::overlay::key_hint("r", "Retry", theme);
-                hint_spans.push(Span::raw("   "));
-                hint_spans.extend(crate::tui::overlay::key_hint("Esc", "Back", theme));
+                let hint_spans = if modal_active {
+                    vec![
+                        Span::styled("[r] Retry", theme.muted),
+                        Span::raw("   "),
+                        Span::styled("[Esc] Back", theme.muted),
+                    ]
+                } else {
+                    let mut s = crate::tui::overlay::key_hint("r", "Retry", theme);
+                    s.push(Span::raw("   "));
+                    s.extend(crate::tui::overlay::key_hint("Esc", "Back", theme));
+                    s
+                };
                 text.push(Line::from(hint_spans));
 
                 let error_p = Paragraph::new(text)
@@ -385,7 +409,16 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                 ])
                 .split(area);
 
-            let loading_spans = if state.basic_terminal {
+            let loading_spans = if modal_active {
+                vec![Span::styled(
+                    if state.basic_terminal {
+                        format!("Loading details {spinner}")
+                    } else {
+                        format!("{spinner}   Loading details...")
+                    },
+                    theme.muted,
+                )]
+            } else if state.basic_terminal {
                 vec![Span::styled(
                     format!("Loading details {spinner}"),
                     theme.lavender,
@@ -578,6 +611,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                 state.basic_terminal,
                 is_in_flight,
                 state.tick_count,
+                modal_active,
             );
         }
 
@@ -591,7 +625,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
 
     let mut rendered_lines: Vec<Line> = Vec::new();
     let title_style = if modal_active {
-        theme.overlay0.add_modifier(Modifier::BOLD)
+        theme.muted
     } else {
         theme.title.add_modifier(Modifier::BOLD)
     };
@@ -1425,8 +1459,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
 
                 let codec_str = codec.to_uppercase();
                 let tags = extract_media_tags(&file.filename, &codec_str);
-                let media_tag_spans =
-                    crate::tui::widgets::render_media_tag_spans(&tags, theme, state.basic_terminal);
+                let media_tag_spans = crate::tui::widgets::render_media_tag_spans(
+                    &tags,
+                    theme,
+                    state.basic_terminal,
+                    modal_active,
+                );
                 let tags_cell = if !media_tag_spans.is_empty() {
                     Cell::from(ratatui::text::Line::from(media_tag_spans))
                 } else if codec != "None" && !codec.is_empty() {
@@ -3471,8 +3509,8 @@ mod tests {
                 {
                     assert_eq!(
                         cell.style().fg,
-                        theme.overlay1.fg,
-                        "Multi badge foreground should be overlay1"
+                        theme.muted.fg,
+                        "Multi badge foreground should be muted"
                     );
                 }
                 if cell.symbol() == "H" && x + 4 < 120 && buffer[(x + 1, y)].symbol() == "i" {

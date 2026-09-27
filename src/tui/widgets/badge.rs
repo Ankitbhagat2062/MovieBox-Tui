@@ -56,7 +56,7 @@ pub fn resolution_badge_spans<'a>(
             _ => "  SD   ",
         };
         let badge_bg = theme.surface0_color();
-        let contrast_fg = theme.overlay1.fg.unwrap_or(theme.base);
+        let contrast_fg = theme.muted.fg.unwrap_or(theme.base);
         return vec![
             Span::styled(label, Style::default().bg(badge_bg).fg(contrast_fg)),
             Span::raw(" "),
@@ -358,29 +358,44 @@ pub fn render_media_tag_spans<'a>(
     tags: &MediaTags,
     theme: &'a Theme,
     basic_terminal: bool,
+    modal_active: bool,
 ) -> Vec<Span<'a>> {
     let mut tag_items = Vec::new();
 
     if let Some(hdr) = tags.hdr {
-        tag_items.push(Span::styled(hdr, theme.rating.add_modifier(Modifier::BOLD)));
+        let style = if modal_active {
+            theme.muted
+        } else {
+            theme.rating.add_modifier(Modifier::BOLD)
+        };
+        tag_items.push(Span::styled(hdr, style));
     }
 
     if let Some(audio) = tags.audio {
-        tag_items.push(Span::styled(
-            audio,
-            theme.sapphire.add_modifier(Modifier::BOLD),
-        ));
+        let style = if modal_active {
+            theme.muted
+        } else {
+            theme.sapphire.add_modifier(Modifier::BOLD)
+        };
+        tag_items.push(Span::styled(audio, style));
     }
 
     if let Some(codec) = tags.codec {
-        tag_items.push(Span::styled(codec, theme.teal.add_modifier(Modifier::BOLD)));
+        let style = if modal_active {
+            theme.muted
+        } else {
+            theme.teal.add_modifier(Modifier::BOLD)
+        };
+        tag_items.push(Span::styled(codec, style));
     }
 
     if let Some(source) = tags.source {
-        tag_items.push(Span::styled(
-            source,
-            theme.lavender.add_modifier(Modifier::BOLD),
-        ));
+        let style = if modal_active {
+            theme.muted
+        } else {
+            theme.lavender.add_modifier(Modifier::BOLD)
+        };
+        tag_items.push(Span::styled(source, style));
     }
 
     if tag_items.is_empty() {
@@ -389,10 +404,15 @@ pub fn render_media_tag_spans<'a>(
 
     let mut spans = Vec::new();
     let sep = if basic_terminal { " - " } else { " · " };
+    let sep_style = if modal_active {
+        theme.muted
+    } else {
+        theme.text_dim
+    };
 
     for (i, tag_span) in tag_items.into_iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(sep, theme.text_dim));
+            spans.push(Span::styled(sep, sep_style));
         }
         spans.push(tag_span);
     }
@@ -450,7 +470,7 @@ mod tests {
         assert_eq!(basic_multi[0].content.trim(), "[Multi]");
 
         let muted_multi = resolution_badge_spans(-1, &theme, false, true, false);
-        assert_eq!(muted_multi[0].style.fg, theme.overlay1.fg);
+        assert_eq!(muted_multi[0].style.fg, theme.muted.fg);
         let muted_basic = resolution_badge_spans(-1, &theme, true, true, false);
         assert_eq!(muted_basic[0].style.fg, theme.muted.fg);
     }
@@ -500,9 +520,15 @@ mod tests {
             codec: Some("HEVC"),
             source: Some("WEB-DL"),
         };
-        let spans = render_media_tag_spans(&tags, &theme, false);
+        let spans = render_media_tag_spans(&tags, &theme, false, false);
         assert_eq!(spans.len(), 8);
-        let basic_spans = render_media_tag_spans(&tags, &theme, true);
+        assert_eq!(spans[0].style.fg, theme.rating.fg);
+        let muted_spans = render_media_tag_spans(&tags, &theme, false, true);
+        for span in muted_spans.iter().take(7) {
+            assert_eq!(span.style.fg, theme.muted.fg);
+            assert!(!span.style.add_modifier.contains(Modifier::BOLD));
+        }
+        let basic_spans = render_media_tag_spans(&tags, &theme, true, false);
         assert_eq!(basic_spans[0].content, "HDR");
     }
     #[test]

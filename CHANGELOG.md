@@ -23,13 +23,14 @@
 - **Download Engine & Subprocess Diagnostics**:
   - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
   - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.
-  - Accelerated DASH stream downloads by passing `--concurrent-fragments 5` to `yt-dlp` with resilient retry policies (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`) in `src/tui/app/download.rs`, overcoming per-connection CDN bandwidth throttling and preventing transient packet drops.
+  - Accelerated MovieBox DASH stream downloads from ~0.92 MiB/s to ~10.29 MiB/s by passing `--http-chunk-size 95K` and `--concurrent-fragments 8` to `yt-dlp` with resilient retry policies (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`) in `src/tui/app/download.rs`, resetting Alibaba Cloud Tengine's per-request `limit_rate_after 96k` rate-limiter across persistent Keep-Alive sockets.
+  - Refactored the direct HTTP multi-segment downloader in `src/download.rs` to pre-allocate the `.part` file and write segments in-place via positional `SeekFrom::Start` offsets (scaling concurrency to 4–12 workers down to 16 MB files), eliminating temporary `.part.N` files and the post-download `.assembling` full-file disk copy.
 - **TUI Rendering & Event Loop Performance**:
   - Expanded terminal standard output `BufWriter` capacity from 64 KB to 256 KB in `src/main.rs`, enabling atomic frame flushes and eliminating visual tearing during graphical Sixel and Kitty poster transfers.
   - Replaced allocating `to_string()` hash set checks in `src/favorites.rs` with zero-allocation borrowed string comparisons in `is_favorite`, eliminating 400+ heap allocations per second during search grid rendering.
   - Eliminated redundant 100ms idle tick redraws on static home screens in `src/tui/app/system.rs`, dropping idle CPU consumption to zero.
   - Replaced per-card `Layout::split` invocations in `src/tui/screens/home.rs` with direct row arithmetic calculations, avoiding repeated layout solver overhead across search result slots.
-  - Rendered stream media tags (HDR, ATMOS, 5.1, HEVC, AV1, WEB-DL) in `src/tui/screens/details.rs` using styled surface pill spans instead of raw concatenated text, pruning transient string vectors in the table mapping loop.
+  - Rendered stream media tags (HDR, ATMOS, 5.1, HEVC, AV1, WEB-DL) in `src/tui/screens/details.rs` using styled surface pill spans and unified background modal dimming to `theme.muted` across `render_media_tag_spans`, `resolution_badge_spans` (`src/tui/widgets/badge.rs`), `render_poster_placeholder` (`src/tui/widgets/poster.rs`), Details headers (`src/tui/screens/details.rs`), and Home search result bars, cards, ratings, and history progress rows (`src/tui/screens/home.rs`).
   - Replaced linear index iteration with exact O(1) `HashSet` lookups in `FavoritesManager::is_favorite` (`src/favorites.rs`).
 - **Provider Scraping & Concurrency Engine**:
   - Replaced chunked mirror resolution barriers in 4KHDHub (`src/providers/fourkhdhub/client.rs`) with concurrent `FuturesUnordered` preflights and early termination on the first healthy playable mirror, reducing time-to-first-stream latency by multiple seconds.

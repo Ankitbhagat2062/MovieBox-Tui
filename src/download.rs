@@ -12,11 +12,11 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 const MAX_ATTEMPTS: usize = 4;
-const SEGMENT_THRESHOLD: u64 = 32 * 1024 * 1024;
-const MAX_SEGMENTS: usize = 8;
+const SEGMENT_THRESHOLD: u64 = 16 * 1024 * 1024;
+const MAX_SEGMENTS: usize = 12;
 pub const DEFAULT_STREAM_NAME: &str = "MovieBox-Tui_Stream";
 
 pub fn safe_file_stem(value: &str) -> String {
@@ -133,6 +133,8 @@ struct ResumeMetadata {
     last_modified: Option<String>,
     total: Option<u64>,
     segments: Option<usize>,
+    #[serde(default)]
+    segment_progress: Vec<u64>,
 }
 
 pub async fn download<F>(
@@ -154,13 +156,23 @@ where
     let mut segmented_disabled = false;
 
     for attempt in 1..=MAX_ATTEMPTS {
+        let is_segmented_state = metadata.segments.is_some();
         if cancel.load(Ordering::Relaxed) {
+            let paused_bytes = if is_segmented_state {
+                metadata.segment_progress.iter().sum()
+            } else {
+                file_len(&partial).await
+            };
             return Ok(DownloadOutcome::Paused {
-                bytes: file_len(&partial).await,
+                bytes: paused_bytes,
             });
         }
 
-        let mut offset = file_len(&partial).await;
+        let mut offset = if is_segmented_state {
+            0
+        } else {
+            file_len(&partial).await
+        };
         let mut request = client.get(url);
         if offset > 0 {
             request = request.header(RANGE, format!("bytes={offset}-"));
@@ -190,49 +202,62 @@ where
         }
 
         if !segmented_disabled
-            && offset == 0
-            && response.status() == StatusCode::OK
+            && (offset == 0 || !metadata.segment_progress.is_empty())
+            && (response.status() == StatusCode::OK
+                || response.status() == StatusCode::PARTIAL_CONTENT)
             && response
                 .headers()
                 .get(ACCEPT_RANGES)
                 .and_then(|value| value.to_str().ok())
                 .is_none_or(|value| !value.eq_ignore_ascii_case("none"))
-            && response
-                .content_length()
-                .is_some_and(|total| total >= SEGMENT_THRESHOLD)
         {
-            let total = response.content_length().unwrap_or_default();
-            let segments = segment_count(total);
-            let current_metadata = ResumeMetadata {
-                etag: header_string(&response, ETAG),
-                last_modified: header_string(&response, LAST_MODIFIED),
-                total: Some(total),
-                segments: Some(segments),
+            let total_opt = if response.status() == StatusCode::PARTIAL_CONTENT {
+                response
+                    .headers()
+                    .get(CONTENT_RANGE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|cr| parse_content_range(cr).ok())
+                    .and_then(|(_, t)| t)
+            } else {
+                response.content_length()
             };
-            if !metadata_matches(&metadata, &current_metadata) {
-                remove_segment_files(destination).await;
-            }
-            write_metadata(&metadata_path, &current_metadata).await?;
-            drop(response);
-            match download_segmented(
-                client,
-                url,
-                destination,
-                &metadata_path,
-                current_metadata,
-                cancel.clone(),
-                &mut report,
-            )
-            .await
-            {
-                Err(DownloadError::InvalidRange(_)) => {
-                    remove_segment_files(destination).await;
-                    metadata = ResumeMetadata::default();
-                    write_metadata(&metadata_path, &metadata).await?;
-                    segmented_disabled = true;
-                    continue;
+            if let Some(total) = total_opt.filter(|&t| t >= SEGMENT_THRESHOLD) {
+                let segments = segment_count(total);
+                let mut current_metadata = ResumeMetadata {
+                    etag: header_string(&response, ETAG),
+                    last_modified: header_string(&response, LAST_MODIFIED),
+                    total: Some(total),
+                    segments: Some(segments),
+                    segment_progress: vec![0; segments],
+                };
+                if metadata_matches(&metadata, &current_metadata)
+                    && metadata.segment_progress.len() == segments
+                    && file_len(&partial).await == total
+                {
+                    current_metadata.segment_progress = metadata.segment_progress.clone();
                 }
-                result => return result,
+                write_metadata(&metadata_path, &current_metadata).await?;
+                drop(response);
+                match download_segmented(
+                    client,
+                    url,
+                    destination,
+                    &metadata_path,
+                    current_metadata,
+                    cancel.clone(),
+                    &mut report,
+                )
+                .await
+                {
+                    Err(DownloadError::InvalidRange(_)) => {
+                        let _ = tokio::fs::remove_file(&partial).await;
+                        metadata = ResumeMetadata::default();
+                        write_metadata(&metadata_path, &metadata).await?;
+                        segmented_disabled = true;
+                        continue;
+                    }
+                    result => return result,
+                }
             }
         }
 
@@ -271,12 +296,15 @@ where
             continue;
         }
 
+        if offset == 0 && file_len(&partial).await > 0 {
+            truncate(&partial).await?;
+        }
         metadata.etag = header_string(&response, ETAG).or(metadata.etag);
         metadata.last_modified = header_string(&response, LAST_MODIFIED).or(metadata.last_modified);
         metadata.total = response_total.or(metadata.total);
         metadata.segments = None;
+        metadata.segment_progress.clear();
         write_metadata(&metadata_path, &metadata).await?;
-
         let raw_file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -366,43 +394,60 @@ async fn download_segmented<F>(
     url: &str,
     destination: &Path,
     metadata_path: &Path,
-    metadata: ResumeMetadata,
+    mut metadata: ResumeMetadata,
     cancel: Arc<AtomicBool>,
     report: &mut F,
 ) -> Result<DownloadOutcome, DownloadError>
 where
     F: FnMut(DownloadProgress),
 {
+    let partial_buf = sidecar_path(destination, "part");
+    let partial_path = partial_buf.as_path();
     let total = metadata
         .total
         .ok_or_else(|| DownloadError::InvalidRange("segment total missing".into()))?;
     let segments = metadata.segments.unwrap_or_else(|| segment_count(total));
     let ranges = segment_ranges(total, segments);
-    let mut initial = 0;
-
-    for (index, (start, end)) in ranges.iter().copied().enumerate() {
-        let path = segment_path(destination, index);
-        let expected = end - start + 1;
-        let length = file_len(&path).await;
-        if length > expected {
-            truncate(&path).await?;
-        } else {
-            initial += length;
-        }
+    if metadata.segment_progress.len() != segments {
+        metadata.segment_progress = vec![0; segments];
     }
 
+    let raw_partial = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(partial_path)
+        .await?;
+    if raw_partial.metadata().await.map(|m| m.len()).unwrap_or(0) != total {
+        raw_partial.set_len(total).await?;
+        metadata.segment_progress.fill(0);
+    }
+    drop(raw_partial);
+
+    let mut initial = 0u64;
+    let mut segment_counters = Vec::with_capacity(segments);
+    for (index, &(start, end)) in ranges.iter().enumerate() {
+        let expected = end - start + 1;
+        let written = metadata.segment_progress[index].min(expected);
+        metadata.segment_progress[index] = written;
+        initial += written;
+        segment_counters.push(Arc::new(AtomicU64::new(written)));
+    }
+    write_metadata(metadata_path, &metadata).await?;
+
     let downloaded = Arc::new(AtomicU64::new(initial));
-    let (progress_sender, mut progress_receiver) = tokio::sync::mpsc::channel::<(u64, usize)>(64);
+    let (progress_sender, mut progress_receiver) = tokio::sync::mpsc::channel::<(u64, usize)>(128);
     let mut tasks = tokio::task::JoinSet::new();
     let validator = metadata.etag.clone().or(metadata.last_modified.clone());
 
     for (index, (start, end)) in ranges.iter().copied().enumerate() {
         let client = client.clone();
         let url = url.to_string();
-        let path = segment_path(destination, index);
+        let path = partial_path.to_path_buf();
         let cancel = cancel.clone();
         let progress_sender = progress_sender.clone();
         let validator = validator.clone();
+        let seg_counter = Arc::clone(&segment_counters[index]);
         tasks.spawn(async move {
             download_segment(
                 &client,
@@ -411,6 +456,7 @@ where
                 start,
                 end,
                 total,
+                seg_counter,
                 validator,
                 cancel,
                 progress_sender,
@@ -422,6 +468,7 @@ where
 
     let started = Instant::now();
     let mut last_report = Instant::now() - Duration::from_secs(1);
+    let mut last_meta_flush = Instant::now();
     let mut finished = 0;
     while finished < segments {
         tokio::select! {
@@ -443,6 +490,13 @@ where
                         });
                         last_report = Instant::now();
                     }
+                    if last_meta_flush.elapsed() >= Duration::from_secs(2) {
+                        for (idx, counter) in segment_counters.iter().enumerate() {
+                            metadata.segment_progress[idx] = counter.load(Ordering::Relaxed);
+                        }
+                        let _ = write_metadata(metadata_path, &metadata).await;
+                        last_meta_flush = Instant::now();
+                    }
                 }
             }
             result = tasks.join_next() => {
@@ -450,12 +504,20 @@ where
                     Some(Ok(Ok(()))) => finished += 1,
                     Some(Ok(Err(DownloadError::Paused))) => {
                         tasks.abort_all();
+                        for (idx, counter) in segment_counters.iter().enumerate() {
+                            metadata.segment_progress[idx] = counter.load(Ordering::Relaxed);
+                        }
+                        let _ = write_metadata(metadata_path, &metadata).await;
                         return Ok(DownloadOutcome::Paused {
                             bytes: downloaded.load(Ordering::Relaxed),
                         });
                     }
                     Some(Ok(Err(error))) => {
                         tasks.abort_all();
+                        for (idx, counter) in segment_counters.iter().enumerate() {
+                            metadata.segment_progress[idx] = counter.load(Ordering::Relaxed);
+                        }
+                        let _ = write_metadata(metadata_path, &metadata).await;
                         return Err(error);
                     }
                     Some(Err(error)) => {
@@ -471,51 +533,22 @@ where
     }
 
     if cancel.load(Ordering::Relaxed) {
+        for (idx, counter) in segment_counters.iter().enumerate() {
+            metadata.segment_progress[idx] = counter.load(Ordering::Relaxed);
+        }
+        let _ = write_metadata(metadata_path, &metadata).await;
         return Ok(DownloadOutcome::Paused {
             bytes: downloaded.load(Ordering::Relaxed),
         });
     }
 
-    let assembly = sidecar_path(destination, "assembling");
-    let mut output = tokio::fs::File::create(&assembly).await?;
-    let mut copy_buffer = vec![0u8; 256 * 1024];
-    for index in 0..segments {
-        let path = segment_path(destination, index);
-        let mut part = tokio::fs::File::open(&path).await?;
-        loop {
-            let n = tokio::io::AsyncReadExt::read(&mut part, &mut copy_buffer).await?;
-            if n == 0 {
-                break;
-            }
-            tokio::io::AsyncWriteExt::write_all(&mut output, &copy_buffer[..n]).await?;
-        }
-    }
-    output.flush().await?;
-    output.sync_data().await?;
-    drop(output);
-    if file_len(&assembly).await != total {
+    if file_len(partial_path).await != total {
         return Err(DownloadError::Incomplete {
-            downloaded: file_len(&assembly).await,
+            downloaded: file_len(partial_path).await,
             expected: total,
         });
     }
-    if destination.exists() {
-        let _ = tokio::fs::remove_file(destination).await;
-    }
-    if let Err(e) = tokio::fs::rename(&assembly, destination).await {
-        let _ = tokio::fs::remove_file(destination).await;
-        tokio::fs::rename(&assembly, destination)
-            .await
-            .map_err(|e2| {
-                DownloadError::File(std::io::Error::other(format!(
-                    "failed to move assembled file to destination: {e} ({e2})"
-                )))
-            })?;
-    }
-    for index in 0..segments {
-        let _ = tokio::fs::remove_file(segment_path(destination, index)).await;
-    }
-    let _ = tokio::fs::remove_file(metadata_path).await;
+    finalize(partial_path, metadata_path, destination).await?;
     report(DownloadProgress {
         downloaded: total,
         total: Some(total),
@@ -538,6 +571,7 @@ async fn download_segment(
     start: u64,
     end: u64,
     total: u64,
+    segment_written: Arc<AtomicU64>,
     validator: Option<String>,
     cancel: Arc<AtomicBool>,
     progress: tokio::sync::mpsc::Sender<(u64, usize)>,
@@ -549,7 +583,7 @@ async fn download_segment(
         if cancel.load(Ordering::Relaxed) {
             return Err(DownloadError::Paused);
         }
-        let existing = file_len(path).await.min(expected);
+        let existing = segment_written.load(Ordering::Relaxed).min(expected);
         if existing == expected {
             return Ok(());
         }
@@ -592,12 +626,16 @@ async fn download_segment(
             )));
         }
 
-        let raw_file = tokio::fs::OpenOptions::new()
+        let mut raw_file = tokio::fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(false)
             .open(path)
             .await?;
-        let mut file = tokio::io::BufWriter::with_capacity(256 * 1024, raw_file);
+        raw_file
+            .seek(std::io::SeekFrom::Start(requested_start))
+            .await?;
+        let mut file = tokio::io::BufWriter::with_capacity(512 * 1024, raw_file);
         let mut response = response;
         let mut written = existing;
         let mut unbatched_bytes = 0u64;
@@ -608,6 +646,7 @@ async fn download_segment(
                     let _ = progress.send((unbatched_bytes, attempt)).await;
                 }
                 file.flush().await?;
+                segment_written.store(written, Ordering::Relaxed);
                 return Err(DownloadError::Paused);
             }
             match tokio::time::timeout(Duration::from_secs(30), response.chunk()).await {
@@ -616,6 +655,7 @@ async fn download_segment(
                     let bytes = chunk.len().min(remaining as usize);
                     file.write_all(&chunk[..bytes]).await?;
                     written += bytes as u64;
+                    segment_written.store(written, Ordering::Relaxed);
                     unbatched_bytes += bytes as u64;
                     if unbatched_bytes >= 256 * 1024
                         || last_progress_send.elapsed() >= Duration::from_millis(100)
@@ -638,6 +678,7 @@ async fn download_segment(
                         let _ = progress.send((unbatched_bytes, attempt)).await;
                     }
                     file.flush().await?;
+                    segment_written.store(written, Ordering::Relaxed);
                     last_error = Some(DownloadError::Incomplete {
                         downloaded: written,
                         expected,
@@ -649,6 +690,7 @@ async fn download_segment(
                         let _ = progress.send((unbatched_bytes, attempt)).await;
                     }
                     file.flush().await?;
+                    segment_written.store(written, Ordering::Relaxed);
                     last_error = Some(DownloadError::Network(error));
                     break;
                 }
@@ -657,6 +699,7 @@ async fn download_segment(
                         let _ = progress.send((unbatched_bytes, attempt)).await;
                     }
                     file.flush().await?;
+                    segment_written.store(written, Ordering::Relaxed);
                     last_error = Some(DownloadError::InvalidRange("read timeout".into()));
                     break;
                 }
@@ -666,16 +709,18 @@ async fn download_segment(
     }
 
     Err(last_error.unwrap_or(DownloadError::Incomplete {
-        downloaded: file_len(path).await,
+        downloaded: segment_written.load(Ordering::Relaxed),
         expected,
     }))
 }
 
 fn segment_count(total: u64) -> usize {
-    if total < 256 * 1024 * 1024 {
-        2
-    } else if total < 2 * 1024 * 1024 * 1024 {
+    if total < 64 * 1024 * 1024 {
         4
+    } else if total < 256 * 1024 * 1024 {
+        6
+    } else if total < 1024 * 1024 * 1024 {
+        8
     } else {
         MAX_SEGMENTS
     }
@@ -696,12 +741,11 @@ fn segment_ranges(total: u64, segments: usize) -> Vec<(u64, u64)> {
         .collect()
 }
 
-fn segment_path(destination: &Path, index: usize) -> PathBuf {
-    sidecar_path(destination, &format!("part.{index}"))
-}
-
 fn metadata_matches(previous: &ResumeMetadata, current: &ResumeMetadata) -> bool {
-    if previous.total != current.total || previous.segments != current.segments {
+    if previous.total.is_none()
+        || previous.total != current.total
+        || previous.segments != current.segments
+    {
         return false;
     }
 
@@ -711,15 +755,9 @@ fn metadata_matches(previous: &ResumeMetadata, current: &ResumeMetadata) -> bool
 
     match (&previous.last_modified, &current.last_modified) {
         (Some(a), Some(b)) => a == b,
+        (None, None) => previous.etag.is_none() && current.etag.is_none(),
         _ => false,
     }
-}
-
-async fn remove_segment_files(destination: &Path) {
-    for index in 0..MAX_SEGMENTS {
-        let _ = tokio::fs::remove_file(segment_path(destination, index)).await;
-    }
-    let _ = tokio::fs::remove_file(sidecar_path(destination, "assembling")).await;
 }
 
 fn parse_content_range(value: &str) -> Result<(u64, Option<u64>), DownloadError> {
@@ -843,6 +881,125 @@ mod tests {
         assert_eq!(ranges[1], (250, 499));
         assert_eq!(ranges[2], (500, 749));
         assert_eq!(ranges[3], (750, 999));
+    }
+
+    #[test]
+    fn test_segment_count_scaling() {
+        assert_eq!(segment_count(32 * 1024 * 1024), 4);
+        assert_eq!(segment_count(120 * 1024 * 1024), 6);
+        assert_eq!(segment_count(500 * 1024 * 1024), 8);
+        assert_eq!(segment_count(2 * 1024 * 1024 * 1024), 12);
+    }
+
+    #[tokio::test]
+    async fn test_segmented_in_place_download_and_resume() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let total_size: usize = 16 * 1024 * 1024;
+        let payload: Arc<Vec<u8>> = Arc::new((0..total_size).map(|i| (i % 251) as u8).collect());
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}/segmented_movie.mp4");
+
+        let server_payload = Arc::clone(&payload);
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let data = Arc::clone(&server_payload);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let Ok(n) = socket.read(&mut buf).await else {
+                        return;
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let mut range_header = None;
+                    for line in req.lines() {
+                        if let Some(val) = line
+                            .strip_prefix("Range: bytes=")
+                            .or_else(|| line.strip_prefix("range: bytes="))
+                        {
+                            range_header = Some(val.trim().to_string());
+                        }
+                    }
+                    let total = data.len();
+                    if let Some(r) = range_header {
+                        let (s_str, e_str) = r.split_once('-').unwrap();
+                        let start: usize = s_str.parse().unwrap();
+                        if start >= total {
+                            let resp = format!(
+                                "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{total}\r\nConnection: close\r\n\r\n"
+                            );
+                            let _ = socket.write_all(resp.as_bytes()).await;
+                            return;
+                        }
+                        let end: usize = if e_str.is_empty() {
+                            total - 1
+                        } else {
+                            e_str.parse().unwrap()
+                        };
+                        let slice = &data[start..=end];
+                        let resp = format!(
+                            "HTTP/1.1 206 Partial Content\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            slice.len()
+                        );
+                        let _ = socket.write_all(resp.as_bytes()).await;
+                        let _ = socket.write_all(slice).await;
+                    } else {
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n"
+                        );
+                        let _ = socket.write_all(resp.as_bytes()).await;
+                    }
+                });
+            }
+        });
+
+        let temp_dir = std::env::temp_dir().join(format!("mbx_seg_inplace_{}", std::process::id()));
+        tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+        let dest_file = temp_dir.join("movie.mp4");
+        let client = crate::net::streaming_client_builder().build().unwrap();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut max_workers = 0usize;
+
+        let part_file = sidecar_path(&dest_file, "part");
+        let meta_file = sidecar_path(&dest_file, "part.json");
+        let seg_len = (total_size / 4) as u64;
+        let mut pre_buf = vec![0u8; total_size];
+        pre_buf[..seg_len as usize].copy_from_slice(&payload[..seg_len as usize]);
+        tokio::fs::write(&part_file, &pre_buf).await.unwrap();
+        write_metadata(
+            &meta_file,
+            &ResumeMetadata {
+                etag: None,
+                last_modified: None,
+                total: Some(total_size as u64),
+                segments: Some(4),
+                segment_progress: vec![seg_len, 0, 0, 0],
+            },
+        )
+        .await
+        .unwrap();
+        let res = download(&client, &url, &dest_file, cancel, |prog| {
+            max_workers = max_workers.max(prog.workers);
+        })
+        .await;
+
+        server.abort();
+        assert!(
+            matches!(res, Ok(DownloadOutcome::Completed { bytes }) if bytes == total_size as u64)
+        );
+        assert_eq!(max_workers, 4);
+        let saved = tokio::fs::read(&dest_file).await.unwrap();
+        assert_eq!(saved.len(), total_size);
+        assert_eq!(saved, *payload);
+        assert!(!sidecar_path(&dest_file, "part").exists());
+        assert!(!sidecar_path(&dest_file, "part.json").exists());
+
+        let _ = tokio::fs::remove_dir_all(&temp_dir).await;
     }
 
     #[test]

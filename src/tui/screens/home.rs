@@ -174,6 +174,7 @@ fn render_search_state(
         "  •  "
     };
 
+    let modal_active = state.has_active_modal();
     let mut lines: Vec<Line> = Vec::new();
 
     match view {
@@ -195,7 +196,14 @@ fn render_search_state(
                 } else {
                     format!("Loading{dots}")
                 };
-                lines.push(Line::from(vec![Span::styled(text, theme.lavender)]));
+                lines.push(Line::from(vec![Span::styled(
+                    text,
+                    if modal_active {
+                        theme.muted
+                    } else {
+                        theme.lavender
+                    },
+                )]));
             } else {
                 let spinner =
                     crate::tui::widgets::loading_spinner(state.tick_count, state.basic_terminal);
@@ -214,10 +222,21 @@ fn render_search_state(
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("{spinner} "),
-                        theme.accent.add_modifier(Modifier::BOLD),
+                        if modal_active {
+                            theme.muted
+                        } else {
+                            theme.accent.add_modifier(Modifier::BOLD)
+                        },
                     ),
                     Span::raw(" "),
-                    Span::styled(text, theme.subtext1.add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        text,
+                        if modal_active {
+                            theme.muted
+                        } else {
+                            theme.subtext1.add_modifier(Modifier::BOLD)
+                        },
+                    ),
                 ]));
             }
         }
@@ -241,7 +260,11 @@ fn render_search_state(
             };
             lines.push(Line::from(vec![Span::styled(
                 msg,
-                theme.text.add_modifier(Modifier::BOLD),
+                if modal_active {
+                    theme.muted
+                } else {
+                    theme.text.add_modifier(Modifier::BOLD)
+                },
             )]));
             lines.push(Line::from(""));
 
@@ -249,6 +272,16 @@ fn render_search_state(
             let sep = if is_compact_btn { "  " } else { "        " };
             let is_history_or_fav = state.search_query.trim().eq_ignore_ascii_case("/history")
                 || state.search_query.trim().eq_ignore_ascii_case("/favorites");
+            let sub_s = if modal_active {
+                theme.muted
+            } else {
+                theme.subtext1
+            };
+            let key_s = if modal_active {
+                theme.muted
+            } else {
+                theme.shortcut
+            };
             let pills = if is_history_or_fav {
                 vec![]
             } else if state.is_tv_mode {
@@ -258,9 +291,9 @@ fn render_search_state(
                     "[ Clear Search ("
                 };
                 vec![
-                    Span::styled(btn_label, theme.subtext1),
-                    Span::styled("c", theme.shortcut),
-                    Span::styled(") ]", theme.subtext1),
+                    Span::styled(btn_label, sub_s),
+                    Span::styled("c", key_s),
+                    Span::styled(") ]", sub_s),
                 ]
             } else {
                 let btn2_label = if is_compact_btn {
@@ -274,13 +307,13 @@ fn render_search_state(
                     format!("[ Try on {} (", next_provider.label())
                 };
                 vec![
-                    Span::styled(btn1_label, theme.subtext1),
-                    Span::styled(ctrl_p, theme.shortcut),
-                    Span::styled(") ]", theme.subtext1),
+                    Span::styled(btn1_label, sub_s),
+                    Span::styled(ctrl_p, key_s),
+                    Span::styled(") ]", sub_s),
                     Span::raw(sep),
-                    Span::styled(btn2_label, theme.subtext1),
-                    Span::styled("c", theme.shortcut),
-                    Span::styled(") ]", theme.subtext1),
+                    Span::styled(btn2_label, sub_s),
+                    Span::styled("c", key_s),
+                    Span::styled(") ]", sub_s),
                 ]
             };
 
@@ -300,39 +333,61 @@ fn render_search_state(
             let wrap_width = area.width.min(72).saturating_sub(8).max(10) as usize;
             let wrapped_err_lines = crate::tui::text::wrap_text(err_text, wrap_width);
 
+            let err_s = if modal_active {
+                theme.muted
+            } else {
+                theme.error
+            };
+            let err_bold_s = if modal_active {
+                theme.muted
+            } else {
+                theme.error.add_modifier(Modifier::BOLD)
+            };
+            let sub_s = if modal_active {
+                theme.muted
+            } else {
+                theme.subtext1
+            };
+            let dim_s = if modal_active {
+                theme.muted
+            } else {
+                theme.text_dim
+            };
+            let key_s = if modal_active {
+                theme.muted
+            } else {
+                theme.shortcut
+            };
             lines.push(Line::from(vec![
-                Span::styled(format!("{symbol} "), theme.error),
-                Span::styled(
-                    "Search Request Error",
-                    theme.error.add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(format!("{symbol} "), err_s),
+                Span::styled("Search Request Error", err_bold_s),
             ]));
             if !wrapped_err_lines.is_empty() {
                 for eline in wrapped_err_lines {
-                    lines.push(Line::from(vec![Span::styled(eline, theme.subtext1)]));
+                    lines.push(Line::from(vec![Span::styled(eline, sub_s)]));
                 }
             } else {
                 lines.push(Line::from(vec![Span::styled(
                     "Unable to complete search request with the current provider.",
-                    theme.subtext1,
+                    sub_s,
                 )]));
             }
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
-                Span::styled("[", theme.text_dim),
-                Span::styled("r", theme.shortcut),
-                Span::styled("] ", theme.text_dim),
-                Span::styled("Retry", theme.subtext1),
-                Span::styled(bullet, theme.text_dim),
-                Span::styled("[", theme.text_dim),
-                Span::styled(ctrl_p, theme.shortcut),
-                Span::styled("] ", theme.text_dim),
-                Span::styled("Switch Provider", theme.subtext1),
-                Span::styled(bullet, theme.text_dim),
-                Span::styled("[", theme.text_dim),
-                Span::styled("Esc", theme.shortcut),
-                Span::styled("] ", theme.text_dim),
-                Span::styled("Back", theme.subtext1),
+                Span::styled("[", dim_s),
+                Span::styled("r", key_s),
+                Span::styled("] ", dim_s),
+                Span::styled("Retry", sub_s),
+                Span::styled(bullet, dim_s),
+                Span::styled("[", dim_s),
+                Span::styled(ctrl_p, key_s),
+                Span::styled("] ", dim_s),
+                Span::styled("Switch Provider", sub_s),
+                Span::styled(bullet, dim_s),
+                Span::styled("[", dim_s),
+                Span::styled("Esc", key_s),
+                Span::styled("] ", dim_s),
+                Span::styled("Back", sub_s),
             ]));
         }
         _ => return,
@@ -357,11 +412,15 @@ fn render_search_state(
     };
 
     if is_boxed && card.height >= 3 {
-        let (border_style, title_text, title_style) = (
-            theme.error,
-            " Error ",
-            theme.error.add_modifier(Modifier::BOLD),
-        );
+        let (border_style, title_text, title_style) = if modal_active {
+            (theme.muted, " Error ", theme.muted)
+        } else {
+            (
+                theme.error,
+                " Error ",
+                theme.error.add_modifier(Modifier::BOLD),
+            )
+        };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(crate::tui::overlay::border_type(state.basic_terminal))
@@ -696,7 +755,9 @@ pub(crate) fn render_landing_deck(frame: &mut Frame, area: Rect, state: &AppStat
             crate::tui::state::HomeDeckTab::Favorites => "/favorites",
         };
         let pill_text = format!("+{overflow} more {sep} {cmd}");
-        let pill_style = if state.basic_terminal {
+        let pill_style = if modal_active {
+            theme.muted
+        } else if state.basic_terminal {
             theme.sapphire
         } else {
             theme.sapphire.add_modifier(Modifier::BOLD)
@@ -924,11 +985,7 @@ fn render_search_bar(
                 let sep = if state.basic_terminal { "-" } else { "·" };
                 format!("[{label} {sep} {ctrl_p}]")
             };
-            let style = if state.basic_terminal {
-                theme.muted
-            } else {
-                theme.muted.add_modifier(Modifier::BOLD)
-            };
+            let style = theme.muted;
             (text, style)
         } else if modal_active {
             let text = if !is_query_empty {
@@ -1138,8 +1195,9 @@ fn render_search_bar(
             ])
             .split(area);
 
+        let modal_active = state.has_active_modal();
         let editing = view == SearchViewState::Editing;
-        let real_cursor = editing && !state.basic_terminal;
+        let real_cursor = editing && !state.basic_terminal && !modal_active;
         let has_status = state.status_timer > 0
             && !state.status_message.is_empty()
             && state.search_query.is_empty()
@@ -1155,7 +1213,12 @@ fn render_search_bar(
                 dynamic_search_placeholder(state)
             };
 
-            if has_status {
+            if modal_active {
+                Line::from(vec![
+                    Span::styled(prefix, theme.muted),
+                    Span::styled(placeholder_text, theme.muted),
+                ])
+            } else if has_status {
                 Line::from(vec![
                     Span::styled(prefix, theme.accent),
                     Span::styled(placeholder_text, theme.accent),
@@ -1173,6 +1236,11 @@ fn render_search_bar(
                     Span::styled(placeholder_text, theme.text_dim),
                 ])
             }
+        } else if modal_active {
+            Line::from(vec![
+                Span::styled(prefix, theme.muted),
+                Span::styled(state.search_query.as_str(), theme.muted),
+            ])
         } else {
             Line::from(vec![
                 Span::styled(prefix, if editing { theme.accent } else { theme.text }),
@@ -1200,7 +1268,11 @@ fn render_search_bar(
         if let Some(status) = result_status {
             frame.render_widget(
                 Paragraph::new(status)
-                    .style(theme.accent)
+                    .style(if modal_active {
+                        theme.muted
+                    } else {
+                        theme.accent
+                    })
                     .alignment(Alignment::Right),
                 content_row[1],
             );
@@ -1555,6 +1627,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                             state.basic_terminal,
                             is_in_flight,
                             state.tick_count,
+                            modal_active,
                         );
                     }
                 } else if poster_area.width > 0 {
@@ -1565,6 +1638,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                         state.basic_terminal,
                         false,
                         state.tick_count,
+                        modal_active,
                     );
                 }
 
@@ -1723,16 +1797,26 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                 let mut row3_spans = vec![ratatui::text::Span::raw(" ")];
 
                 if is_history {
+                    let hist_text_style = if modal_active {
+                        theme.muted
+                    } else {
+                        theme.text
+                    };
+                    let hist_dim_style = if modal_active {
+                        theme.muted
+                    } else {
+                        theme.text_dim
+                    };
                     if !type_tag.is_empty() {
-                        row2_spans.push(ratatui::text::Span::styled(&type_tag, theme.text));
-                        row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                        row2_spans.push(ratatui::text::Span::styled(&type_tag, hist_text_style));
+                        row2_spans.push(ratatui::text::Span::styled("  ", hist_dim_style));
                     }
                     if res.season > 0 {
                         row2_spans.push(ratatui::text::Span::styled(
                             format!("S{:02}E{:02}", res.season, res.episode),
-                            theme.text,
+                            hist_text_style,
                         ));
-                        row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                        row2_spans.push(ratatui::text::Span::styled("  ", hist_dim_style));
                     }
 
                     if let Some(hist) = state.history.get_item(
@@ -1744,36 +1828,38 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     ) {
                         if hist.is_in_progress() {
                             let (filled, empty) = hist.progress_bar_parts(8);
+                            let filled_style = if modal_active {
+                                theme.muted
+                            } else {
+                                theme.accent.add_modifier(ratatui::style::Modifier::BOLD)
+                            };
                             let mut progress_spans = vec![
-                                ratatui::text::Span::styled(
-                                    filled,
-                                    theme.accent.add_modifier(ratatui::style::Modifier::BOLD),
-                                ),
-                                ratatui::text::Span::styled(empty, theme.text_dim),
+                                ratatui::text::Span::styled(filled, filled_style),
+                                ratatui::text::Span::styled(empty, hist_dim_style),
                             ];
                             let pct = hist
                                 .progress_percentage()
                                 .map(|p| format!(" {:.0}%", p))
                                 .unwrap_or_default();
-                            progress_spans.push(ratatui::text::Span::styled(pct, theme.text));
+                            progress_spans.push(ratatui::text::Span::styled(pct, hist_text_style));
 
                             if let Some(r) = hist.formatted_remaining() {
                                 progress_spans.push(ratatui::text::Span::styled(
                                     format!(" ({r})"),
-                                    theme.text_dim,
+                                    hist_dim_style,
                                 ));
                             }
 
                             if use_three_rows {
                                 row3_spans.extend(progress_spans);
-                                row3_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                                row3_spans.push(ratatui::text::Span::styled("  ", hist_dim_style));
                                 row3_spans.push(ratatui::text::Span::styled(
                                     format!("Watched {}", hist.formatted_relative_time()),
-                                    theme.text_dim,
+                                    hist_dim_style,
                                 ));
                             } else {
                                 row2_spans.extend(progress_spans);
-                                row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                                row2_spans.push(ratatui::text::Span::styled("  ", hist_dim_style));
                             }
                         } else if hist.completed {
                             let comp_span = ratatui::text::Span::styled(
@@ -1782,18 +1868,18 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                                 } else {
                                     "[✓ Completed]"
                                 },
-                                theme.text_dim,
+                                hist_dim_style,
                             );
                             if use_three_rows {
                                 row3_spans.push(comp_span);
-                                row3_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                                row3_spans.push(ratatui::text::Span::styled("  ", hist_dim_style));
                                 row3_spans.push(ratatui::text::Span::styled(
                                     format!("Watched {}", hist.formatted_relative_time()),
-                                    theme.text_dim,
+                                    hist_dim_style,
                                 ));
                             } else {
                                 row2_spans.push(comp_span);
-                                row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                                row2_spans.push(ratatui::text::Span::styled("  ", hist_dim_style));
                             }
                         }
                     }
@@ -1811,9 +1897,30 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                         .or_else(|| state.preview_cache.peek(&res.id));
                     if let Some(r) = matching_meta.and_then(|m| m.imdb_rating.as_deref()) {
                         let star = if state.basic_terminal { "* " } else { "★ " };
-                        row2_spans.push(ratatui::text::Span::styled(star, theme.rating));
-                        row2_spans.push(ratatui::text::Span::styled(r, theme.text));
-                        row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                        row2_spans.push(ratatui::text::Span::styled(
+                            star,
+                            if modal_active {
+                                theme.muted
+                            } else {
+                                theme.rating
+                            },
+                        ));
+                        row2_spans.push(ratatui::text::Span::styled(
+                            r,
+                            if modal_active {
+                                theme.muted
+                            } else {
+                                theme.text
+                            },
+                        ));
+                        row2_spans.push(ratatui::text::Span::styled(
+                            "  ",
+                            if modal_active {
+                                theme.muted
+                            } else {
+                                theme.text_dim
+                            },
+                        ));
                     }
                     let has_year = res.release_year != "Unknown" && !res.release_year.is_empty();
                     if has_year {
@@ -1859,15 +1966,28 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                         if is_selected {
                             let genre_buf = meta.genres.join(", ");
                             if !genre_buf.is_empty() {
-                                row3_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                                row3_spans.push(ratatui::text::Span::styled(
+                                    "  ",
+                                    if modal_active {
+                                        theme.muted
+                                    } else {
+                                        theme.text_dim
+                                    },
+                                ));
                                 let available_w = (text_area.width as usize).saturating_sub(
                                     crate::tui::text::width(res.provider.label()) + 6,
                                 );
                                 let g_trunc =
                                     crate::tui::text::truncate_width(&genre_buf, available_w)
                                         .into_owned();
-                                row3_spans
-                                    .push(ratatui::text::Span::styled(g_trunc, theme.subtext1));
+                                row3_spans.push(ratatui::text::Span::styled(
+                                    g_trunc,
+                                    if modal_active {
+                                        theme.muted
+                                    } else {
+                                        theme.subtext1
+                                    },
+                                ));
                             }
                         }
                     } else if is_selected && state.preview_loading {
@@ -1877,10 +1997,15 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                             2 => "..",
                             _ => "...",
                         };
-                        row3_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
+                        let load_style = if modal_active {
+                            theme.muted
+                        } else {
+                            theme.text_dim
+                        };
+                        row3_spans.push(ratatui::text::Span::styled("  ", load_style));
                         row3_spans.push(ratatui::text::Span::styled(
                             format!("Loading{dots}"),
-                            theme.text_dim,
+                            load_style,
                         ));
                     }
                 }

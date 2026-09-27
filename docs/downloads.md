@@ -13,10 +13,9 @@ MovieBox-TUI includes a multi-segment HTTP chunked downloader supporting pause, 
 During download, files are saved with temporary extensions:
 
 ```text
-destination.mp4.part       # In-progress byte buffer
-destination.mp4.part.json  # Download state (ETag, Last-Modified, total size, segment offsets)
-destination.mp4.assembling # Sequential segment assembly
-destination.mp4            # Final verified output
+destination.mp4.part       # Pre-allocated in-place byte buffer across all workers
+destination.mp4.part.json  # Download state (ETag, Last-Modified, total size, per-segment byte offsets)
+destination.mp4            # Final verified output (atomic rename on completion)
 ```
 
 Upon completion, temporary sidecars are verified and renamed atomically to the target filename.
@@ -39,6 +38,6 @@ MovieBox DASH streams require `yt-dlp` and `ffmpeg` to download and mux adaptive
 - **macOS**: `brew install yt-dlp ffmpeg`
 - **Android (Termux)**: `pkg install yt-dlp ffmpeg`
 - **Linux**: Install `yt-dlp` and `ffmpeg` via system package manager.
-The downloader preflights both binaries before launching the transfer, failing fast with platform-specific installation commands if either is absent. Transferred fragments are pulled with `--concurrent-fragments 5` alongside resilient retry bounds (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`) to maximize bandwidth utilization and protect against transient CDN packet drops. Any subprocess errors during transfer capture and display the underlying `yt-dlp` error diagnostics directly in the failure notification.
+The downloader preflights both binaries before launching the transfer, failing fast with platform-specific installation commands if either is absent. Transferred fragments are pulled with `--concurrent-fragments 8` and `--http-chunk-size 95K` (keeping individual range sub-requests under Tengine's `limit_rate_after 96k` throttle boundary) alongside resilient retry bounds (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`). Any subprocess errors during transfer capture and display the underlying `yt-dlp` error diagnostics directly in the failure notification.
 
-All other providers (4KHDHub, BDIX, DhakaFlix, CircleFTP, TV mode) download directly through the internal HTTP engine.
+All other providers (4KHDHub, Dramachi, BDIX, DhakaFlix, CircleFTP, Stremio Addons, TV mode) download directly through the internal multi-segment HTTP engine (4–12 concurrent workers writing in-place to the pre-allocated `.part` file).
