@@ -161,7 +161,10 @@ pub async fn run_sidecar(
 
     loop {
         let (stream, _) = match listener.accept().await {
-            Ok(val) => val,
+            Ok(conn) => {
+                let _ = conn.0.set_nodelay(true);
+                conn
+            }
             Err(err) => {
                 log::warn!("transient proxy accept error: {err}");
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -407,7 +410,10 @@ async fn handle_connection(
                 tokio::time::timeout(Duration::from_secs(CHUNK_IDLE_TIMEOUT_SECS), stream.next())
                     .await;
             match chunk_result {
-                Ok(Some(Ok(chunk))) => writer.write_all(&chunk).await?,
+                Ok(Some(Ok(chunk))) => {
+                    writer.write_all(&chunk).await?;
+                    writer.flush().await?;
+                }
                 Ok(Some(Err(e))) => return Err(Box::new(e)),
                 Ok(None) => break,
                 Err(_elapsed) => break,

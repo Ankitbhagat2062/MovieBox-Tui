@@ -19,8 +19,10 @@ local meta_title = ""
 local meta_cover = ""
 local meta_stype = 0
 local meta_year = ""
+local meta_stream = ""
 local seed_read = false
-
+local last_written_pos = -1
+local last_written_completed = false
 local function read_seed_meta()
     if seed_read or opts.state_file == "" then return end
     seed_read = true
@@ -34,6 +36,7 @@ local function read_seed_meta()
     local st = content:match('"stype":%s*(%d+)')
     if st then meta_stype = tonumber(st) or 0 end
     meta_year = content:match('"release_year":%s*"([^"]-)"') or ""
+    meta_stream = content:match('"stream_filename":%s*"([^"]-)"') or ""
 end
 
 mp.observe_property("time-pos", "number", function(name, val)
@@ -52,8 +55,6 @@ local function write_state(force_completed)
     if opts.state_file == "" then return end
     if last_dur <= 0 and last_pos <= 0 then return end
 
-    read_seed_meta()
-
     if force_completed then
         has_completed = true
     end
@@ -61,7 +62,16 @@ local function write_state(force_completed)
         has_completed = true
     end
 
-    local now = os.time()
+    local pos_floor = math.floor(last_pos + 0.5)
+    local is_paused = mp.get_property_native("pause") == true
+    if not force_completed and is_paused and pos_floor == last_written_pos and has_completed == last_written_completed then
+        return
+    end
+    if not force_completed and math.abs(pos_floor - last_written_pos) < 1 and has_completed == last_written_completed then
+        return
+    end
+
+    read_seed_meta()
     local dur_val = "null"
     if last_dur > 0 then
         dur_val = string.format("%d", math.floor(last_dur + 0.5))
@@ -76,6 +86,9 @@ local function write_state(force_completed)
             meta_stype,
             meta_year
         )
+    end
+    if meta_stream ~= "" then
+        meta_json = meta_json .. string.format(',"stream_filename":%q', meta_stream)
     end
 
     local json = string.format(
@@ -99,8 +112,16 @@ local function write_state(force_completed)
         f:close()
         os.remove(opts.state_file)
         os.rename(tmp_file, opts.state_file)
+        last_written_pos = pos_floor
+        last_written_completed = has_completed
     end
 end
+
+mp.observe_property("pause", "bool", function(name, val)
+    if val then
+        write_state(false)
+    end
+end)
 
 mp.register_event("end-file", function(event)
     if event and event.reason == "eof" then

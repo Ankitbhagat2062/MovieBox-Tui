@@ -69,7 +69,7 @@ pub struct FavoritesManager {
     #[serde(default)]
     pub items: Vec<FavoriteItem>,
     #[serde(skip)]
-    id_index: std::collections::HashSet<(String, String, i64)>,
+    id_index: std::collections::HashSet<String>,
 }
 
 impl FavoritesManager {
@@ -137,21 +137,23 @@ impl FavoritesManager {
             let prov_canonical = crate::providers::models::ProviderKind::parse(&item.provider)
                 .map(|p| p.cache_key().to_string())
                 .unwrap_or_else(|| item.provider.trim().to_ascii_lowercase());
-            self.id_index
-                .insert((prov_canonical, item.subject_id.clone(), item.stype));
+            self.id_index.insert(format!(
+                "{}:{}:{}",
+                prov_canonical, item.subject_id, item.stype
+            ));
         }
     }
 
     pub fn is_favorite(&self, identity: &crate::models::SubjectIdentity<'_>) -> bool {
         if !identity.subject_id.is_empty() {
             let prov_canonical = crate::providers::models::ProviderKind::parse(identity.provider)
-                .map(|p| p.cache_key())
-                .unwrap_or_else(|| identity.provider.trim());
-            if self.id_index.iter().any(|(p, id, st)| {
-                *st == identity.stype
-                    && p.eq_ignore_ascii_case(prov_canonical)
-                    && id == identity.subject_id
-            }) {
+                .map(|p| p.cache_key().to_string())
+                .unwrap_or_else(|| identity.provider.trim().to_ascii_lowercase());
+            let key = format!(
+                "{}:{}:{}",
+                prov_canonical, identity.subject_id, identity.stype
+            );
+            if self.id_index.contains(key.as_str()) {
                 return true;
             }
         }

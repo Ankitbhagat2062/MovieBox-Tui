@@ -152,32 +152,31 @@ impl FourKHdHubClient {
             ));
         }
 
-        for chunk in unique_candidates.chunks(3) {
-            let chunk_futures = chunk.iter().map(|(url, label, headers)| {
-                let this = self.clone();
-                let url = url.clone();
-                let label = label.clone();
-                let mut merged = headers.clone();
-                if !merged
-                    .iter()
-                    .any(|(name, _)| name.eq_ignore_ascii_case("referer"))
-                {
-                    merged.push(("Referer".to_string(), referer.clone()));
-                }
-                if !merged
-                    .iter()
-                    .any(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
-                {
-                    merged.push(("User-Agent".to_string(), BROWSER_UA.to_string()));
-                }
-                Box::pin(async move {
-                    let playable_url = this.preflight(&url, &merged).await?;
-                    Ok::<_, FourKHdHubError>((playable_url, label, merged))
-                })
-            });
-            if let Ok(((playable_url, label, headers), _)) =
-                futures::future::select_ok(chunk_futures).await
+        use futures::StreamExt;
+        let mut preflight_tasks = futures::stream::FuturesUnordered::new();
+        for (url, label, headers) in unique_candidates.into_iter().take(6) {
+            let this = self.clone();
+            let mut merged = headers;
+            if !merged
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("referer"))
             {
+                merged.push(("Referer".to_string(), referer.clone()));
+            }
+            if !merged
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+            {
+                merged.push(("User-Agent".to_string(), BROWSER_UA.to_string()));
+            }
+            preflight_tasks.push(async move {
+                let playable_url = this.preflight(&url, &merged).await?;
+                Ok::<_, FourKHdHubError>((playable_url, label, merged))
+            });
+        }
+
+        while let Some(res) = preflight_tasks.next().await {
+            if let Ok((playable_url, label, headers)) = res {
                 log::info!(
                     "4KHDHub mirror playable: {label} ({})",
                     crate::logging::sanitize_url(&playable_url)

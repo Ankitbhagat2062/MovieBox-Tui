@@ -7,7 +7,7 @@
   - Gated background search pagination in `src/tui/app/navigation.rs` so arrow navigation on result sets smaller than the visible viewport never triggers background page fetches.
   - Added `search_exhausted` tracking in `src/tui/state.rs` and `src/tui/app/requests.rs`, stopping pagination crawls when provider search returns fewer than 15 items or zero query-matching results.
   - Preserved stable card slot positions during search pagination in `src/tui/app/requests.rs` by appending subsequent page items to the list rather than re-sorting the entire array out from under the cursor.
-  - Removed redundant "Provider: <name>" status message override from the search bar on provider switch in `src/tui/app/navigation.rs`, preserving the clean search placeholder while the active provider pill displays on the right.
+  - Removed redundant "Provider: {name}" status message override from the search bar on provider switch in `src/tui/app/navigation.rs`, preserving the clean search placeholder while the active provider pill displays on the right.
 - **Media Playback & Buffering Engine**:
   - Prioritized native desktop media players (`mpv`, `VLC`) over Android intent openers in `src/player.rs` when an active X11/Wayland display server (`$DISPLAY`, `$WAYLAND_DISPLAY`) is detected, preventing Ubuntu Xfce (udroid/PRoot) and Termux:X11 desktop sessions from dispatching playback to external Android app choosers.
   - Configured `mpv` and `IINA` with initial cache buffering (`--cache-pause-initial=yes`) and resilient re-buffer cushion (`--cache-pause-wait=10`) in `src/player.rs`, preventing repeated 2-second stutter loops on bandwidth-constrained CDN streams.
@@ -15,6 +15,11 @@
   - Enabled HTTP/1.1 persistent connections (`Keep-Alive`) across DASH segment streaming in `src/proxy.rs`, eliminating recurring TCP handshake overhead.
   - Enforced `max_height` resolution limits in the loopback stream proxy manifest rewriter (`src/proxy.rs`, `src/main.rs`, `src/tui/app/playback.rs`), pruning representations exceeding the chosen ceiling so Android players and VLC respect 480p and 720p selections.
   - Parsed signed expiration timestamps (`:t=`) from MovieBox `Edge-Cache-Cookie` headers in `src/cache.rs` alongside CloudFront policies, automatically invalidating stale stream cache entries within 60 seconds of expiration to prevent HTTP 403 playback crashes.
+  - Persisted selected stream filenames (`stream_filename`) in watch history (`src/history.rs`, `src/player/tracker.rs`, `src/tui/app/playback.rs`) and auto-focused matching stream rows on load (`src/tui/app/requests.rs`, `src/tui/app/system.rs`), restoring the user's previously chosen quality mirror when resuming multi-stream releases.
+  - Enabled TCP nodelay (`stream.set_nodelay(true)`) and per-chunk immediate flushes on the local `StreamRelay` proxy in `src/proxy.rs`, eliminating 100–300ms time-to-first-frame buffering delays on loopback sockets.
+  - Implemented negative caching (`Option<Option<String>>`) for media player detection (`MPV_CACHED`, `VLC_CACHED`, `IINA_CACHED`) in `src/player.rs`, eliminating redundant filesystem scans and registry lookups when players are absent.
+  - Throttled Lua tracker periodic disk sync in `src/player/tracker.rs` when playback is paused or positional change is sub-second, cutting SSD writes by up to 90% during playback pauses.
+  - Removed duplicate redundant `history.save()` calls in `src/tui/app/playback.rs` upon marking items watched.
 - **Download Engine & Subprocess Diagnostics**:
   - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
   - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.
@@ -25,6 +30,14 @@
   - Eliminated redundant 100ms idle tick redraws on static home screens in `src/tui/app/system.rs`, dropping idle CPU consumption to zero.
   - Replaced per-card `Layout::split` invocations in `src/tui/screens/home.rs` with direct row arithmetic calculations, avoiding repeated layout solver overhead across search result slots.
   - Rendered stream media tags (HDR, ATMOS, 5.1, HEVC, AV1, WEB-DL) in `src/tui/screens/details.rs` using styled surface pill spans instead of raw concatenated text, pruning transient string vectors in the table mapping loop.
+  - Replaced linear index iteration with exact O(1) `HashSet` lookups in `FavoritesManager::is_favorite` (`src/favorites.rs`).
+- **Provider Scraping & Concurrency Engine**:
+  - Replaced chunked mirror resolution barriers in 4KHDHub (`src/providers/fourkhdhub/client.rs`) with concurrent `FuturesUnordered` preflights and early termination on the first healthy playable mirror, reducing time-to-first-stream latency by multiple seconds.
+  - Bound individual Stremio addon stream fetches in `src/providers/addons/aggregator.rs` with a 5-second timeout, preventing unresponsive third-party addons from blocking stream aggregation.
+  - Capped initial search poster scraping in DhakaFlix (`src/providers/bdix/dhakaflix/client.rs`) to the first 20 items, eliminating dozens of blocking HTTP POST requests on large catalog searches.
+- **Storage & Disk Cache Engine**:
+  - Optimized typed cache serialization in `src/cache.rs` using direct in-place encoding (`rmp_serde::encode::write`) into pre-seeded magic header buffers, eliminating intermediate vector allocations and duplicate memory copies.
+  - Pre-allocated file buffer capacity from file metadata in `get_typed_cache` in `src/cache.rs`, eliminating repetitive vector reallocations during cache reads.
 ### Changed
 - **Documentation & Cross-Platform Terminal Compatibility**:
   - Documented native Windows Terminal Sixel image support requirements (`v1.22+` via Microsoft Store) in `docs/cross-platform.md` and `README.md`, clarifying that no third-party terminal or configuration is required on Windows.

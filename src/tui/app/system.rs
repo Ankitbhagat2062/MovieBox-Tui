@@ -77,11 +77,35 @@ impl App {
                                 let count = cached.len();
                                 self.state.selected_resources = cached.clone();
                                 self.state.is_loading = false;
-                                self.state.resource_list_state.select(if count > 0 {
-                                    Some(0)
+                                let preferred_stream_idx = if count > 0 {
+                                    let provider_key =
+                                        self.provider_for_subject(&subject_id).cache_key();
+                                    let saved_stream = self
+                                        .state
+                                        .history
+                                        .get_item(
+                                            provider_key,
+                                            &subject_id,
+                                            se,
+                                            ep,
+                                            self.state
+                                                .selected_details
+                                                .as_ref()
+                                                .map(|d| d.title.as_str()),
+                                        )
+                                        .and_then(|item| item.stream_filename.as_deref());
+                                    if let Some(target_file) = saved_stream {
+                                        cached
+                                            .iter()
+                                            .position(|r| r.filename == target_file)
+                                            .or(Some(0))
+                                    } else {
+                                        Some(0)
+                                    }
                                 } else {
                                     None
-                                });
+                                };
+                                self.state.resource_list_state.select(preferred_stream_idx);
                                 self.state.set_status_default(format!(
                                     "Resolved {} direct stream sources (cached).",
                                     count

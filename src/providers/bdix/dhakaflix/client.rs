@@ -229,9 +229,9 @@ impl DhakaFlixClient {
         let item_ids: Vec<(usize, String)> = all_results
             .iter()
             .enumerate()
+            .take(20)
             .map(|(idx, item)| (idx, item.id.value.clone()))
             .collect();
-
         let poster_stream = futures::stream::iter(item_ids.into_iter().map(|(idx, id)| {
             let client = self.client.clone();
 

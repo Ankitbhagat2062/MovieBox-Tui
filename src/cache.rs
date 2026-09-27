@@ -25,6 +25,7 @@ pub fn get_typed_cache<T: DeserializeOwned + Serialize>(
 ) -> Option<T> {
     use std::io::Read;
     let mut file = fs::File::open(path).ok()?;
+    let mut file_len = 0;
     if let Ok(metadata) = file.metadata() {
         if let Some(elapsed) = metadata.modified().ok().and_then(|m| m.elapsed().ok()) {
             if elapsed.as_secs() > expiry_secs {
@@ -32,8 +33,9 @@ pub fn get_typed_cache<T: DeserializeOwned + Serialize>(
                 return None;
             }
         }
+        file_len = metadata.len() as usize;
     }
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(file_len);
     if file.read_to_end(&mut bytes).is_err() {
         return None;
     }
@@ -72,10 +74,9 @@ pub fn set_typed_cache<T: Serialize + ?Sized>(path: &Path, expiry_secs: u64, dat
         expires_at: now + expiry_secs,
         data,
     };
-    if let Ok(msgpack_bytes) = rmp_serde::to_vec(&envelope) {
-        let mut file_bytes = Vec::with_capacity(4 + msgpack_bytes.len());
-        file_bytes.extend_from_slice(&CACHE_MAGIC);
-        file_bytes.extend_from_slice(&msgpack_bytes);
+    let mut file_bytes = Vec::with_capacity(512);
+    file_bytes.extend_from_slice(&CACHE_MAGIC);
+    if rmp_serde::encode::write(&mut file_bytes, &envelope).is_ok() {
         if let Err(error) = atomic_write_file(path, &file_bytes) {
             log::warn!(
                 "failed to write cache file {}: {error}",

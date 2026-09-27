@@ -567,21 +567,20 @@ fn probe_iina_resolution() -> Option<IinaResolution> {
 }
 
 #[cfg(target_os = "macos")]
-static IINA_CACHED: std::sync::RwLock<Option<IinaResolution>> = std::sync::RwLock::new(None);
+static IINA_CACHED: std::sync::RwLock<Option<Option<IinaResolution>>> =
+    std::sync::RwLock::new(None);
 
 #[cfg(target_os = "macos")]
 fn iina_resolution() -> Option<IinaResolution> {
     if let Ok(guard) = IINA_CACHED.read() {
-        if let Some(res) = &*guard {
-            return Some(res.clone());
+        if let Some(cached) = &*guard {
+            return cached.clone();
         }
     }
 
     let detected = probe_iina_resolution();
-    if let Some(res) = &detected {
-        if let Ok(mut guard) = IINA_CACHED.write() {
-            *guard = Some(res.clone());
-        }
+    if let Ok(mut guard) = IINA_CACHED.write() {
+        *guard = Some(detected.clone());
     }
     detected
 }
@@ -1280,41 +1279,45 @@ fn probe_vlc() -> Option<String> {
     )
 }
 
-static MPV_CACHED: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
-static VLC_CACHED: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+static MPV_CACHED: std::sync::RwLock<Option<Option<String>>> = std::sync::RwLock::new(None);
+static VLC_CACHED: std::sync::RwLock<Option<Option<String>>> = std::sync::RwLock::new(None);
 
 fn mpv_executable() -> Option<String> {
     if let Ok(guard) = MPV_CACHED.read() {
-        if let Some(path) = &*guard {
-            if path.starts_with("flatpak run ") || Path::new(path).is_file() {
-                return Some(path.clone());
+        if let Some(cached) = &*guard {
+            if let Some(path) = cached {
+                if path.starts_with("flatpak run ") || Path::new(path).is_file() {
+                    return Some(path.clone());
+                }
+            } else {
+                return None;
             }
         }
     }
 
     let detected = probe_mpv();
-    if let Some(path) = &detected {
-        if let Ok(mut guard) = MPV_CACHED.write() {
-            *guard = Some(path.clone());
-        }
+    if let Ok(mut guard) = MPV_CACHED.write() {
+        *guard = Some(detected.clone());
     }
     detected
 }
 
 fn vlc_executable() -> Option<String> {
     if let Ok(guard) = VLC_CACHED.read() {
-        if let Some(path) = &*guard {
-            if path.starts_with("flatpak run ") || Path::new(path).is_file() {
-                return Some(path.clone());
+        if let Some(cached) = &*guard {
+            if let Some(path) = cached {
+                if path.starts_with("flatpak run ") || Path::new(path).is_file() {
+                    return Some(path.clone());
+                }
+            } else {
+                return None;
             }
         }
     }
 
     let detected = probe_vlc();
-    if let Some(path) = &detected {
-        if let Ok(mut guard) = VLC_CACHED.write() {
-            *guard = Some(path.clone());
-        }
+    if let Ok(mut guard) = VLC_CACHED.write() {
+        *guard = Some(detected.clone());
     }
     detected
 }

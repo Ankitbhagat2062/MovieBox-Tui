@@ -1751,9 +1751,37 @@ impl App {
                 self.state.is_fetching_streams = false;
                 self.state.has_streams_settled = true;
                 self.state.stream_error = None;
-                self.state
-                    .resource_list_state
-                    .select(if count > 0 { Some(0) } else { None });
+                let preferred_stream_idx = if count > 0 {
+                    let saved_stream = self
+                        .state
+                        .active_subject_id
+                        .as_deref()
+                        .and_then(|sid| {
+                            self.state.history.get_item(
+                                context.provider.cache_key(),
+                                sid,
+                                target_se,
+                                target_ep,
+                                self.state
+                                    .selected_details
+                                    .as_ref()
+                                    .map(|d| d.title.as_str()),
+                            )
+                        })
+                        .and_then(|item| item.stream_filename.as_deref());
+                    if let Some(target_file) = saved_stream {
+                        self.state
+                            .selected_resources
+                            .iter()
+                            .position(|r| r.filename == target_file)
+                            .or(Some(0))
+                    } else {
+                        Some(0)
+                    }
+                } else {
+                    None
+                };
+                self.state.resource_list_state.select(preferred_stream_idx);
                 self.state
                     .set_status_default(format!("{} streams available.", count));
 
@@ -2162,5 +2190,102 @@ mod tests {
 
         assert_eq!(app.state.search_results.len(), 2);
         assert!(app.state.search_exhausted);
+    }
+
+    #[tokio::test]
+    async fn test_episode_streams_auto_selects_saved_stream_filename() {
+        let mut app = App::new();
+        app.state.active_provider = ProviderKind::FourKHdHub;
+        let context = app.request_context();
+        app.state.active_subject_id = Some("dune-2021".to_string());
+        app.state.selected_details = Some(crate::providers::models::MediaDetails {
+            id: crate::providers::models::ProviderMediaId {
+                provider: ProviderKind::FourKHdHub,
+                value: "dune-2021".to_string(),
+            },
+            title: "Dune".to_string(),
+            media_type: crate::models::MediaType::Movie,
+            year: Some("2021".to_string()),
+            description: None,
+            tagline: None,
+            imdb_rating: None,
+            director: None,
+            stars: None,
+            prints: None,
+            audios: None,
+            poster_url: None,
+            duration: None,
+            genres: vec![],
+            seasons: vec![],
+            dubs: vec![],
+        });
+
+        let hist = crate::history::WatchHistoryItem {
+            provider: "4khdhub".to_string(),
+            subject_id: "dune-2021".to_string(),
+            title: "Dune".to_string(),
+            cover_url: None,
+            stype: 1,
+            release_year: "2021".to_string(),
+            season: 1,
+            episode: 1,
+            timestamp: 1000,
+            duration_seconds: Some(7200),
+            progress_seconds: 1500,
+            completed: false,
+            stream_filename: Some("Dune.1080p.mkv".to_string()),
+        };
+        app.state.history.recent.push(hist);
+
+        let streams = vec![
+            Release {
+                provider: ProviderKind::FourKHdHub,
+                filename: "Dune.2160p.mkv".to_string(),
+                quality: Some("2160p".to_string()),
+                codec: Some("hevc".to_string()),
+                language: None,
+                size_bytes: Some(15000000000),
+                season: None,
+                episode: None,
+                mirrors: vec![],
+                resource_id: None,
+            },
+            Release {
+                provider: ProviderKind::FourKHdHub,
+                filename: "Dune.1080p.mkv".to_string(),
+                quality: Some("1080p".to_string()),
+                codec: Some("hevc".to_string()),
+                language: None,
+                size_bytes: Some(3000000000),
+                season: None,
+                episode: None,
+                mirrors: vec![],
+                resource_id: None,
+            },
+            Release {
+                provider: ProviderKind::FourKHdHub,
+                filename: "Dune.720p.mkv".to_string(),
+                quality: Some("720p".to_string()),
+                codec: Some("h264".to_string()),
+                language: None,
+                size_bytes: Some(1000000000),
+                season: None,
+                episode: None,
+                mirrors: vec![],
+                resource_id: None,
+            },
+        ];
+
+        app.handle_requests(Action::EpisodeStreamsReady(
+            context,
+            0,
+            "dune-2021".to_string(),
+            1,
+            1,
+            streams,
+        ))
+        .await;
+
+        assert_eq!(app.state.resource_list_state.selected(), Some(1));
     }
 }

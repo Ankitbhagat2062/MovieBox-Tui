@@ -24,7 +24,7 @@ You can set a default player via `/settings` (Media Player), or override it with
 ```bash
 mpv --autofit=WxH --geometry=50%:50% --idle=no --keep-open=no [OPTIONS] <url>
 ```
-- **Tracking**: Injects `moviebox_tracker.lua` to track watch progress and update history every 5 seconds.
+- **Tracking**: Injects `moviebox_tracker.lua` to track playback progress, total duration, and chosen stream filename, auto-restoring the exact stream mirror upon re-opening multi-stream titles (such as 4KHDHub releases).
 - **Headers**: Custom stream headers (`User-Agent`, `Referer`) are passed via `--http-header-fields`.
 - **DASH Manifests**: CloudFront cookies are passed to yt-dlp hooks via `--ytdl-raw-options-append`.
 - **Subtitles**: Remote subtitles are loaded directly via `--sub-file=<url>`.

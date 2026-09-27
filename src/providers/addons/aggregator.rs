@@ -37,11 +37,13 @@ pub async fn aggregate_streams(
         let m_type = media_type.to_string();
 
         tasks.push(async move {
-            let streams_res = client_clone
-                .fetch_streams(&base_url, &m_type, &id_clone)
-                .await;
+            let streams_res = tokio::time::timeout(
+                std::time::Duration::from_millis(5000),
+                client_clone.fetch_streams(&base_url, &m_type, &id_clone),
+            )
+            .await;
             match streams_res {
-                Ok(items) => {
+                Ok(Ok(items)) => {
                     let mut releases = Vec::new();
                     for item in &items {
                         if let Some(rel) =
@@ -56,8 +58,12 @@ pub async fn aggregate_streams(
                         (releases, None)
                     }
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     log::warn!("addon {addon_name} failed to fetch streams: {err}");
+                    (Vec::new(), None)
+                }
+                Err(_) => {
+                    log::warn!("addon {addon_name} timed out fetching streams");
                     (Vec::new(), None)
                 }
             }

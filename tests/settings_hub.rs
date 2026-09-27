@@ -383,6 +383,7 @@ async fn test_settings_hub_clear_watch_history_activation() {
         duration_seconds: Some(600),
         completed: false,
         timestamp: 1000,
+        stream_filename: None,
     };
     app.state_mut().history.record_start(&item, 120);
     assert!(!app.state().history.recent.is_empty());

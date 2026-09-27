@@ -162,10 +162,12 @@ impl App {
         let provider = self.provider_for_subject(subject_id).cache_key();
         let season = self.state.selected_season;
         let episode = self.state.selected_episode;
+        let selected_stream_filename = self.get_selected_release().map(|r| r.filename.clone());
 
         if let Some(details) = &self.state.selected_details {
             let mut item =
                 crate::history::WatchHistoryItem::from_details(provider, details, season, episode);
+            item.stream_filename = selected_stream_filename;
             if item.cover_url.is_none() {
                 item.cover_url = self
                     .state
@@ -223,6 +225,7 @@ impl App {
             duration_seconds: None,
             progress_seconds: 0,
             completed: false,
+            stream_filename: selected_stream_filename,
         })
     }
 
@@ -1042,8 +1045,6 @@ impl App {
             }
             Action::MarkWatched(item) => {
                 self.state.history.mark_watched(*item);
-                let history = self.state.history.clone();
-                tokio::task::spawn_blocking(move || history.save());
             }
             Action::UpdateProgress {
                 item,
