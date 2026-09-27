@@ -1456,8 +1456,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
             } else {
                 initial_metrics
             };
-            let target_width = if state.image_supported {
-                state
+            let poster_width = if state.image_supported {
+                let target_width = state
                     .image_picker
                     .as_ref()
                     .map(|picker| {
@@ -1469,13 +1469,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                             .unwrap_or(u16::MAX)
                             .max(6)
                     })
-                    .unwrap_or_else(|| state.poster_rows.saturating_mul(4).div_ceil(3).max(6))
+                    .unwrap_or_else(|| state.poster_rows.saturating_mul(4).div_ceil(3).max(6));
+                target_width
+                    .min(metrics.col_width.saturating_sub(18).max(6))
+                    .max(6)
             } else {
-                state.poster_rows.saturating_mul(4).div_ceil(3).clamp(8, 12)
+                0
             };
-            let poster_width = target_width
-                .min(metrics.col_width.saturating_sub(18).max(6))
-                .max(6);
             state.last_result_metrics = Some(metrics);
             let row_height = metrics.row_height;
             frame.render_widget(list_block, results_area);
@@ -1807,16 +1807,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                     let matching_meta = state
                         .search_preview
                         .as_ref()
-                        .filter(|m| m.id.value == res.id && m.id.provider == res.provider);
-                    if let Some(meta) = matching_meta {
-                        if is_selected {
-                            if let Some(r) = meta.imdb_rating.as_deref() {
-                                let star = if state.basic_terminal { "* " } else { "★ " };
-                                row2_spans.push(ratatui::text::Span::styled(star, theme.rating));
-                                row2_spans.push(ratatui::text::Span::styled(r, theme.text));
-                                row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
-                            }
-                        }
+                        .filter(|m| m.id.value == res.id && m.id.provider == res.provider)
+                        .or_else(|| state.preview_cache.peek(&res.id));
+                    if let Some(r) = matching_meta.and_then(|m| m.imdb_rating.as_deref()) {
+                        let star = if state.basic_terminal { "* " } else { "★ " };
+                        row2_spans.push(ratatui::text::Span::styled(star, theme.rating));
+                        row2_spans.push(ratatui::text::Span::styled(r, theme.text));
+                        row2_spans.push(ratatui::text::Span::styled("  ", theme.text_dim));
                     }
                     let has_year = res.release_year != "Unknown" && !res.release_year.is_empty();
                     if has_year {
@@ -3851,5 +3848,83 @@ mod tests {
             .collect::<String>();
 
         assert!(content.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))));
+    }
+
+    #[test]
+    fn test_search_card_cached_imdb_rating_rendered_on_unselected_card() {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = AppState {
+            input_mode: InputMode::Normal,
+            search_query: "Inception".into(),
+            search_results: vec![
+                crate::models::SearchResult {
+                    id: "item_0".into(),
+                    title: "First Movie".into(),
+                    stype: 1,
+                    release_year: "2010".into(),
+                    cover_url: None,
+                    season: 0,
+                    episode: 0,
+                    provider: crate::providers::models::ProviderKind::MovieBox,
+                },
+                crate::models::SearchResult {
+                    id: "item_1".into(),
+                    title: "Second Movie".into(),
+                    stype: 1,
+                    release_year: "2012".into(),
+                    cover_url: None,
+                    season: 0,
+                    episode: 0,
+                    provider: crate::providers::models::ProviderKind::MovieBox,
+                },
+            ],
+            has_search_settled: true,
+            basic_terminal: false,
+            image_supported: false,
+            ..Default::default()
+        };
+        state.search_list_state.select(Some(0));
+        state.preview_cache.put(
+            "item_1".to_string(),
+            crate::providers::models::MediaDetails {
+                id: crate::providers::models::ProviderMediaId {
+                    provider: crate::providers::models::ProviderKind::MovieBox,
+                    value: "item_1".to_string(),
+                },
+                title: "Second Movie".to_string(),
+                media_type: crate::providers::models::MediaType::Movie,
+                year: Some("2012".to_string()),
+                description: None,
+                tagline: None,
+                imdb_rating: Some("8.8".to_string()),
+                director: None,
+                stars: None,
+                prints: None,
+                audios: None,
+                poster_url: None,
+                duration: None,
+                genres: vec![],
+                seasons: vec![],
+                dubs: vec![],
+            },
+        );
+        let theme = Theme::mocha();
+        terminal
+            .draw(|frame| {
+                let area = Rect::new(0, 0, 100, 30);
+                draw(frame, area, &mut state, &theme);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let mut rendered = String::new();
+        for y in 0..30 {
+            for x in 0..100 {
+                rendered.push_str(buffer[(x, y)].symbol());
+            }
+            rendered.push('\n');
+        }
+        assert!(rendered.contains("8.8"));
+        assert!(rendered.contains("★"));
     }
 }

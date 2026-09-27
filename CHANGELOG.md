@@ -39,9 +39,16 @@
   - Optimized typed cache serialization in `src/cache.rs` using direct in-place encoding (`rmp_serde::encode::write`) into pre-seeded magic header buffers, eliminating intermediate vector allocations and duplicate memory copies.
   - Pre-allocated file buffer capacity from file metadata in `get_typed_cache` in `src/cache.rs`, eliminating repetitive vector reallocations during cache reads.
 ### Changed
+- **TUI & Ergonomics**:
+  - Remapped `q` / `Q` on `Screen::Details` in `src/tui/app/keyboard.rs` from application exit to `Action::GoBack`, preserving active search results and returning to the home screen without unexpected process termination.
+  - Standardized modal and popup dismissal across Settings, Providers, Browse Presets, Sources, Themes, Addons, and TV Config overlays to dismiss on both `Esc` and `q`.
+  - Reordered episode list label formatting in `src/tui/screens/details.rs` to compute prefix and progress badge widths before truncating episode titles, strictly preventing list item text overflow and jagged multi-line wrapping.
+  - Replaced ambiguous `" ... [i]"` plot synopsis truncation with an explicit `" ... [i: More]"` indicator in `src/tui/screens/details.rs`.
+  - Optimized stream table column constraints for ultra-compact terminals (<65 columns) in `src/tui/screens/details.rs`, compacting `SIZE` to 7 characters and reclaiming columns for release title readability on mobile viewports.
+  - Rendered cached IMDb rating badges across all visible search cards in `src/tui/screens/home.rs` by peeking `preview_cache`, enabling at-a-glance quality comparison across the grid without manual card-by-card selection.
+  - Collapsed empty `[No Art]` poster placeholder columns when `image_supported` is false in `src/tui/screens/home.rs`, expanding search card text and metadata across the full available column width on non-graphical terminals.
 - **Documentation & Cross-Platform Terminal Compatibility**:
   - Documented native Windows Terminal Sixel image support requirements (`v1.22+` via Microsoft Store) in `docs/cross-platform.md` and `README.md`, clarifying that no third-party terminal or configuration is required on Windows.
-
 ## [0.1.24] - 2026-09-24
 
 ### Added

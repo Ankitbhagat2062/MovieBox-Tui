@@ -162,7 +162,7 @@ impl App {
                     self.state.provider_list_state.select(None);
                     self.cycle_provider();
                 }
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.state.show_provider_popup = false;
                     self.state.provider_list_state.select(None);
                 }
@@ -236,7 +236,7 @@ impl App {
             };
 
             match key.code {
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.state.show_browse_popup = false;
                     self.state.browse_list_state.select(None);
                 }
@@ -301,7 +301,7 @@ impl App {
         }
         if self.state.player_picker_popup {
             match key.code {
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.action_sender.send(Action::GoBack).ok();
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -351,7 +351,7 @@ impl App {
 
         if self.state.show_sources_popup {
             match key.code {
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.state.show_sources_popup = false;
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -387,7 +387,7 @@ impl App {
             let total = crate::tui::theme::AVAILABLE_THEMES.len();
             let mut changed = false;
             match key.code {
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.state.show_theme_popup = false;
                     if let Some(orig) = self.state.original_theme_kind.take() {
                         self.action_sender.send(Action::SelectTheme(orig)).ok();
@@ -471,7 +471,7 @@ impl App {
             }
 
             match key.code {
-                KeyCode::Esc => {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                     self.state.show_settings_popup = false;
                     self.state.settings_download_dir_input = None;
                     self.persist_config();
@@ -717,7 +717,7 @@ impl App {
                             return None;
                         }
                         match key.code {
-                            KeyCode::Esc => {
+                            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                                 self.reset_transient_overlays();
                                 self.state.addon_manager_popup = false;
                             }
@@ -781,7 +781,7 @@ impl App {
                             return None;
                         }
                         match key.code {
-                            KeyCode::Esc => {
+                            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                                 self.reset_transient_overlays();
                                 self.state.tv_config_popup = false;
                             }
@@ -1154,7 +1154,7 @@ impl App {
                                 self.action_sender.send(Action::BackTabPane).ok();
                             }
                         }
-                        KeyCode::Esc => {
+                        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
                             self.action_sender.send(Action::GoBack).ok();
                         }
                         KeyCode::Char(' ') | KeyCode::Char('p') | KeyCode::Char('P') => {
@@ -1179,9 +1179,6 @@ impl App {
                                     }
                                 }
                             }
-                        }
-                        KeyCode::Char('q') | KeyCode::Char('Q') => {
-                            self.action_sender.send(Action::Quit).ok();
                         }
                         KeyCode::Char('d') | KeyCode::Char('D') => {
                             if !self.state.subtitle_popup
@@ -1673,5 +1670,33 @@ mod tests {
             app.action_receiver.try_recv().ok(),
             Some(Action::DownloadSeason)
         ));
+    }
+    #[tokio::test]
+    async fn test_details_q_triggers_go_back() {
+        let mut app = App::new();
+        app.state.active_screen = Screen::Details;
+        app.state.details_pane = crate::tui::state::DetailsPane::Streams;
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty()))
+            .await;
+        assert!(matches!(
+            app.action_receiver.try_recv().ok(),
+            Some(Action::GoBack)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_popups_dismiss_on_q() {
+        let mut app = App::new();
+        app.state.show_provider_popup = true;
+        app.state.provider_list_state.select(Some(0));
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty()))
+            .await;
+        assert!(!app.state.show_provider_popup);
+        assert_eq!(app.state.provider_list_state.selected(), None);
+
+        app.state.show_settings_popup = true;
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty()))
+            .await;
+        assert!(!app.state.show_settings_popup);
     }
 }

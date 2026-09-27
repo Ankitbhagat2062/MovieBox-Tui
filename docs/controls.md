@@ -43,7 +43,7 @@ All popups (Themes, Providers, Players, TV Manager, Addon Manager) share standar
 - **`↑` / `↓` / `k` / `j`**: Navigate choices.
 - **`Home` / `End`**: Jump to first / last item.
 - **`Enter`**: Confirm selection.
-- **`Esc`**: Dismiss popup without applying changes.
+- **`Esc` / `q`**: Dismiss popup without applying changes.
 - **TV & Addon Managers**:
   - `r`: Reload playlist sources or addon catalogs.
   - `d` / `Delete`: Remove selected source.
@@ -61,7 +61,7 @@ All popups (Themes, Providers, Players, TV Manager, Addon Manager) share standar
 | **`f`** | Toggle favorite bookmark for current title |
 | **`i`** | Open synopsis and plot overview dialog |
 | **`r`** | Refresh stream list for current title or episode |
-| **`Esc`** | Return to previous screen (Home or Search) |
+| **`Esc` / `q`** | Return to previous screen (Home or Search) |
 
 ## Synopsis & Overview Modal
 
@@ -76,7 +76,7 @@ All popups (Themes, Providers, Players, TV Manager, Addon Manager) share standar
 - **`←` / `→` / `h` / `l`**: Adjust setting values or toggle options.
 - **`Enter` / `Space`**: Activate setting row (edit path, pick theme, run maintenance action).
 - **`d`** (on Download Folder): Reset custom download path back to `~/Downloads/MovieBox-TUI`.
-- **`Esc`**: Close settings and persist changes.
+- **`Esc` / `q`**: Close settings and persist changes.
 
 ## Update Notification Modal
 

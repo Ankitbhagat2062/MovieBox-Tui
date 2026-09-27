@@ -808,7 +808,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
         if wrapped_synopsis.len() > max_synopsis_lines {
             wrapped_synopsis.truncate(max_synopsis_lines);
             if let Some(last) = wrapped_synopsis.last_mut() {
-                let hint = " ... [i]";
+                let hint = " ... [i: More]";
                 let hint_w = crate::tui::text::width(hint);
                 if crate::tui::text::width(last) + hint_w <= text_width {
                     last.push_str(hint);
@@ -1081,35 +1081,6 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                                 && !trim.eq_ignore_ascii_case(&format!("Episode {ep}"))
                                 && !trim.eq_ignore_ascii_case(&format!("EP {ep}"))
                         });
-                    let ep_base = if let Some(t) = ep_title_opt {
-                        let candidate = format!("Episode {ep:02} · {t}");
-                        crate::tui::text::truncate_width(&candidate, ep_max_w).into_owned()
-                    } else {
-                        format!("Episode {ep:02}")
-                    };
-                    let item_style = if modal_active {
-                        theme.muted
-                    } else if is_selected && episodes_focused {
-                        crate::tui::overlay::selection_style(theme, state.basic_terminal)
-                    } else if is_selected {
-                        theme.subtext1.add_modifier(Modifier::BOLD)
-                    } else if let Some(hist) =
-                        state
-                            .history
-                            .get_item(provider, subject_id, se_num, ep, Some(title))
-                    {
-                        if hist.completed {
-                            theme.text_dim
-                        } else if hist.is_in_progress() {
-                            theme.accent
-                        } else {
-                            theme.text
-                        }
-                    } else if state.history.is_watched(provider, subject_id, se_num, ep) {
-                        theme.text_dim
-                    } else {
-                        theme.text
-                    };
                     let sym = if let Some(hist) =
                         state
                             .history
@@ -1140,6 +1111,38 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                             },
                         )
                         .unwrap_or_default();
+                    let sym_w = crate::tui::text::width(sym);
+                    let prog_w = crate::tui::text::width(&progress_info);
+                    let title_budget = ep_max_w.saturating_sub(sym_w + prog_w).max(8);
+                    let ep_base = if let Some(t) = ep_title_opt {
+                        let candidate = format!("Episode {ep:02} · {t}");
+                        crate::tui::text::truncate_width(&candidate, title_budget).into_owned()
+                    } else {
+                        format!("Episode {ep:02}")
+                    };
+                    let item_style = if modal_active {
+                        theme.muted
+                    } else if is_selected && episodes_focused {
+                        crate::tui::overlay::selection_style(theme, state.basic_terminal)
+                    } else if is_selected {
+                        theme.subtext1.add_modifier(Modifier::BOLD)
+                    } else if let Some(hist) =
+                        state
+                            .history
+                            .get_item(provider, subject_id, se_num, ep, Some(title))
+                    {
+                        if hist.completed {
+                            theme.text_dim
+                        } else if hist.is_in_progress() {
+                            theme.accent
+                        } else {
+                            theme.text
+                        }
+                    } else if state.history.is_watched(provider, subject_id, se_num, ep) {
+                        theme.text_dim
+                    } else {
+                        theme.text
+                    };
                     ListItem::new(format!("{sym}{ep_base}{progress_info}")).style(item_style)
                 })
                 .collect()
@@ -1240,7 +1243,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
 
         use ratatui::widgets::{Cell, Row, Table};
 
-        let is_ultra_compact = streams_area.width < 58;
+        let is_ultra_compact = streams_area.width < 65;
         let is_compact = streams_area.width < 85;
         let is_wide = streams_area.width >= 115;
 
@@ -1255,7 +1258,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &Theme) 
                 vec![Cell::from("RES"), Cell::from("SIZE"), Cell::from("RELEASE")],
                 vec![
                     Constraint::Length(8),
-                    Constraint::Length(8),
+                    Constraint::Length(7),
                     Constraint::Min(15),
                 ],
             )
@@ -2712,6 +2715,95 @@ mod tests {
         assert!(content.contains("Episode 10"));
         assert!(!content.contains("· ·"));
         assert!(!content.contains("·  EP"));
+    }
+    #[test]
+    fn test_episode_list_progress_and_long_title_bounded() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        let mut state = AppState {
+            active_subject_id: Some("series_test".to_string()),
+            selected_details: Some(MediaDetails {
+                id: ProviderMediaId {
+                    provider: ProviderKind::MovieBox,
+                    value: "series_test".to_string(),
+                },
+                title: "Series Test".to_string(),
+                media_type: MediaType::Series,
+                year: Some("2024".to_string()),
+                description: None,
+                tagline: None,
+                imdb_rating: None,
+                director: None,
+                stars: None,
+                prints: None,
+                audios: None,
+                poster_url: None,
+                duration: None,
+                genres: vec![],
+                seasons: vec![Season {
+                    number: 1,
+                    episodes: vec![Episode {
+                        season: 1,
+                        number: 1,
+                        title: Some(
+                            "Very Long Episode Title That Exceeds Normal Pane Width Substantially"
+                                .to_string(),
+                        ),
+                        overview: None,
+                    }],
+                }],
+                dubs: vec![],
+            }),
+            available_seasons: vec![Season {
+                number: 1,
+                episodes: vec![Episode {
+                    season: 1,
+                    number: 1,
+                    title: Some(
+                        "Very Long Episode Title That Exceeds Normal Pane Width Substantially"
+                            .to_string(),
+                    ),
+                    overview: None,
+                }],
+            }],
+            available_episode_numbers: vec![vec![1]],
+            details_pane: crate::tui::state::DetailsPane::Episodes,
+            ..Default::default()
+        };
+        state.history.update_progress(
+            crate::history::WatchHistoryItem {
+                provider: "moviebox".to_string(),
+                subject_id: "series_test".to_string(),
+                title: "Series Test".to_string(),
+                cover_url: None,
+                stype: 2,
+                release_year: "2024".to_string(),
+                season: 1,
+                episode: 1,
+                timestamp: 1000,
+                duration_seconds: Some(1200),
+                progress_seconds: 600,
+                completed: false,
+                stream_filename: None,
+            },
+            600,
+            Some(1200),
+            false,
+        );
+        let theme = Theme::mocha();
+        terminal
+            .draw(|frame| {
+                draw(frame, frame.area(), &mut state, &theme);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let content = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(content.contains("Episode 01"));
+        assert!(content.contains("50%"));
     }
 
     #[test]
