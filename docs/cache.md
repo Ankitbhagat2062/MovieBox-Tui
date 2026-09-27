@@ -25,6 +25,7 @@ The envelope stores the creation timestamp (`u64`) alongside the serialized payl
 | :--- | :--- | :--- |
 | `search` | 24 Hours | Search query results per provider |
 | `details` | Dynamic (CloudFront TTL) | Subject details, cast, and signed streaming cookies (auto-adapts to upstream cookie expiration, min 1h, max 24h) |
+| `streams` | Dynamic (Cookie Expiration) | Direct streaming and DASH manifest URLs (auto-adapts to `CloudFront-Policy` and `Edge-Cache-Cookie` expiration timestamp `:t=`, min 1m, max 2h) |
 | `posters` | 7 Days | Downloaded poster image buffers |
 | `tv` | 24 Hours | Remote M3U playlist text snapshots |
 

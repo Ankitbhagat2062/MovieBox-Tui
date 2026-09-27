@@ -13,6 +13,7 @@
   - Replaced aggressive VLC buffering flags (`--network-caching=10000`, `--adaptive-logic=nearoptimal`) with `--network-caching=3000` and `--adaptive-logic=predictive` in `src/player.rs` to stop demuxer stream restarts and 10-second stall loops.
   - Enabled HTTP/1.1 persistent connections (`Keep-Alive`) across DASH segment streaming in `src/proxy.rs`, eliminating recurring TCP handshake overhead.
   - Enforced `max_height` resolution limits in the loopback stream proxy manifest rewriter (`src/proxy.rs`, `src/main.rs`, `src/tui/app/playback.rs`), pruning representations exceeding the chosen ceiling so Android players and VLC respect 480p and 720p selections.
+  - Parsed signed expiration timestamps (`:t=`) from MovieBox `Edge-Cache-Cookie` headers in `src/cache.rs` alongside CloudFront policies, automatically invalidating stale stream cache entries within 60 seconds of expiration to prevent HTTP 403 playback crashes.
 - **Download Engine & Subprocess Diagnostics**:
   - Added preflight verification for `ffmpeg` alongside `yt-dlp` in `src/tui/app/download.rs`, failing fast with installation guidance when media muxing tools are missing.
   - Captured child process stderr lines during DASH transfers to surface concrete `yt-dlp` error diagnostics instead of bare exit codes.

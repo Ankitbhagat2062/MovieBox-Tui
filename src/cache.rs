@@ -276,7 +276,20 @@ pub fn get_provider_stream_cache_typed(
 ) -> Option<Vec<Release>> {
     let path = get_provider_stream_path(provider, subject_id, season, episode);
     let releases: Vec<Release> = get_typed_cache(&path, STREAM_CACHE_EXPIRY_SECS)?;
-    (!releases.is_empty()).then_some(releases)
+    if releases.is_empty() {
+        return None;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if let Some(min_exp) = min_stream_cookie_expiry(&releases) {
+        if min_exp <= now.saturating_add(60) {
+            let _ = fs::remove_file(&path);
+            return None;
+        }
+    }
+    Some(releases)
 }
 
 pub fn set_provider_stream_cache_typed(
@@ -294,26 +307,48 @@ pub fn set_provider_stream_cache_typed(
     set_typed_cache(&path, ttl, releases);
 }
 
-fn stream_cache_ttl_secs(releases: &[Release]) -> u64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let min_cf_expiry = releases
+fn min_stream_cookie_expiry(releases: &[Release]) -> Option<u64> {
+    releases
         .iter()
         .flat_map(|r| &r.mirrors)
         .flat_map(|mirror| &mirror.headers)
         .filter(|(name, _)| name.eq_ignore_ascii_case("cookie"))
         .flat_map(|(_, val)| val.split(';'))
         .filter_map(|part| {
-            let policy_raw = part.trim().strip_prefix("CloudFront-Policy=")?;
-            cf_policy_date_less_than(policy_raw)
+            let trimmed = part.trim();
+            if let Some(policy_raw) = trimmed.strip_prefix("CloudFront-Policy=") {
+                cf_policy_date_less_than(policy_raw)
+            } else if let Some(edge_cookie) = trimmed.strip_prefix("Edge-Cache-Cookie=") {
+                edge_cache_cookie_expiry(edge_cookie)
+            } else {
+                None
+            }
         })
-        .min();
-    let cf_remaining = min_cf_expiry
+        .min()
+}
+
+fn edge_cache_cookie_expiry(cookie_val: &str) -> Option<u64> {
+    for field in cookie_val.split(':') {
+        let trimmed = field.trim();
+        if let Some(raw_ts) = trimmed.strip_prefix("t=") {
+            if let Ok(ts) = raw_ts.parse::<u64>() {
+                return Some(ts);
+            }
+        }
+    }
+    None
+}
+
+fn stream_cache_ttl_secs(releases: &[Release]) -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let min_expiry = min_stream_cookie_expiry(releases);
+    let remaining = min_expiry
         .and_then(|exp| exp.checked_sub(now))
         .unwrap_or(STREAM_CACHE_EXPIRY_SECS);
-    cf_remaining.clamp(60, STREAM_CACHE_EXPIRY_SECS)
+    remaining.clamp(60, STREAM_CACHE_EXPIRY_SECS)
 }
 
 fn cf_policy_date_less_than(policy_raw: &str) -> Option<u64> {
@@ -913,5 +948,43 @@ mod tests {
     fn test_clear_all_cache_returns_ok() {
         let result = clear_all_cache();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_edge_cache_cookie_expiry_parsing() {
+        let cookie = "urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20v:sign=abc:t=1790486259";
+        assert_eq!(edge_cache_cookie_expiry(cookie), Some(1790486259));
+
+        let cookie_no_t = "urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20v:sign=abc";
+        assert_eq!(edge_cache_cookie_expiry(cookie_no_t), None);
+
+        let cookie_invalid_t =
+            "urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20v:sign=abc:t=not_a_number";
+        assert_eq!(edge_cache_cookie_expiry(cookie_invalid_t), None);
+    }
+
+    #[test]
+    fn test_min_stream_cookie_expiry_with_edge_cache_cookie() {
+        let release = Release {
+            provider: ProviderKind::MovieBox,
+            filename: "Test S01E01".to_string(),
+            quality: Some("1080p".to_string()),
+            codec: None,
+            language: None,
+            size_bytes: None,
+            season: Some(1),
+            episode: Some(1),
+            mirrors: vec![crate::models::SourceMirror {
+                label: "MovieBox CDN".to_string(),
+                resolver_url: "https://example.com/index.mpd".to_string(),
+                headers: vec![(
+                    "Cookie".to_string(),
+                    "Edge-Cache-Cookie=urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20v:sign=abc:t=1899999999".to_string(),
+                )],
+                direct_file: true,
+            }],
+            resource_id: Some("res1".to_string()),
+        };
+        assert_eq!(min_stream_cookie_expiry(&[release]), Some(1899999999));
     }
 }
