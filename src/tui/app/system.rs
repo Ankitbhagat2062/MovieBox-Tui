@@ -326,7 +326,9 @@ impl App {
                 self.state.download_dir = None;
                 self.state.settings_download_dir_input = None;
                 self.persist_config();
-                let default_dir = crate::logging::sanitize_path(self.resolve_download_base_dir());
+                let default_dir = crate::logging::sanitize_path(
+                    crate::service::resolve_download_dir(self.state.download_dir.as_deref()),
+                );
                 self.state.notify(
                     NotificationKind::Success,
                     "Download Folder",
@@ -455,7 +457,9 @@ impl App {
                                     self.state.download_dir = None;
                                     self.persist_config();
                                     let default_dir = crate::logging::sanitize_path(
-                                        self.resolve_download_base_dir(),
+                                        crate::service::resolve_download_dir(
+                                            self.state.download_dir.as_deref(),
+                                        ),
                                     );
                                     self.state.notify(
                                         NotificationKind::Success,
@@ -683,7 +687,17 @@ impl App {
                     };
                     self.state
                         .notify(NotificationKind::Error, title, clean_body);
+                } else if let Some(body) = msg.strip_prefix("Warning:") {
+                    log::warn!("{msg}");
+                    self.state
+                        .notify(NotificationKind::Warning, "Notice", body.trim());
                 } else {
+                    if self.state.active_screen != crate::tui::state::Screen::Home
+                        || self.state.addon_manager_popup
+                    {
+                        self.state
+                            .notify(NotificationKind::Info, "Status", msg.clone());
+                    }
                     self.state.set_status_default(msg);
                 }
             }

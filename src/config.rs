@@ -182,6 +182,20 @@ pub fn favorites_path() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("favorites.json"))
 }
 
+pub fn rotate_corrupt_file(path: &std::path::Path, label: &str) {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let corrupt_path = path.with_extension(format!("corrupt.{stamp}"));
+    log::error!(
+        "failed to parse {label} from {}, rotating to {}",
+        crate::logging::sanitize_path(path),
+        crate::logging::sanitize_path(&corrupt_path)
+    );
+    let _ = std::fs::rename(path, corrupt_path);
+}
+
 pub fn load() -> Config {
     let Some(path) = config_path() else {
         return Config::default();
@@ -210,17 +224,7 @@ pub fn load() -> Config {
                 return config;
             }
         }
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let corrupt_path = path.with_extension(format!("corrupt.{stamp}"));
-        log::error!(
-            "failed to parse config from {}, rotating to {}",
-            crate::logging::sanitize_path(&path),
-            crate::logging::sanitize_path(&corrupt_path)
-        );
-        let _ = std::fs::rename(&path, corrupt_path);
+        rotate_corrupt_file(&path, "config");
     }
     Config::default()
 }
@@ -246,17 +250,7 @@ pub fn load_addons() -> Vec<InstalledAddon> {
                 Ok(content) => match serde_json::from_str::<Vec<InstalledAddon>>(&content) {
                     Ok(parsed) => parsed,
                     Err(e) => {
-                        let stamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        let corrupt_path = path.with_extension(format!("corrupt.{stamp}"));
-                        log::error!(
-                            "failed to parse addons config from {} ({e}), rotating to {}",
-                            crate::logging::sanitize_path(&path),
-                            crate::logging::sanitize_path(&corrupt_path)
-                        );
-                        let _ = std::fs::rename(&path, corrupt_path);
+                        rotate_corrupt_file(&path, &format!("addons config ({e})"));
                         Vec::new()
                     }
                 },

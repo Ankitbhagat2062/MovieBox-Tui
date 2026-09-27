@@ -44,10 +44,6 @@ impl MovieBoxService {
         }
     }
 
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.http_client
-    }
-
     pub fn capabilities(&self, provider: ProviderKind) -> crate::providers::ProviderCapabilities {
         match provider {
             ProviderKind::MovieBox => Provider::capabilities(&self.client),
@@ -199,63 +195,77 @@ impl MovieBoxService {
         season: usize,
         episode: usize,
     ) -> Result<Vec<crate::providers::models::SubtitleOption>, String> {
+        if !subject_id.is_empty() && !resource_id.is_empty() {
+            let sid = subject_id.to_string();
+            let rid = resource_id.to_string();
+            if let Ok(Some(cached)) = tokio::task::spawn_blocking(move || {
+                crate::cache::get_captions_cache_typed(&sid, &rid)
+            })
+            .await
+            {
+                if !cached.is_empty() || sibling_ids.is_empty() {
+                    return Ok(cached);
+                }
+            }
+        }
+
         let mut all_captions = Vec::new();
         let mut seen_urls = std::collections::HashSet::new();
 
-        if let Ok(payload) = self.client.get_ext_captions(subject_id, resource_id).await {
+        let primary_fut = self.client.get_ext_captions(subject_id, resource_id);
+        let mut sibling_futs = Vec::new();
+        for sib in sibling_ids.iter().take(3) {
+            if !sib.is_empty() && sib != subject_id {
+                let client = &self.client;
+                sibling_futs.push(async move {
+                    tokio::time::timeout(std::time::Duration::from_secs(6), async move {
+                        let page = if episode > 0 { (episode - 1) / 20 + 1 } else { 1 };
+                        if let Ok((items, _)) =
+                            client.fetch_resource_page(sib, season, episode, 0, page).await
+                        {
+                            let matched_item = find_matching_resource_item(&items, season, episode);
+                            if let Some(item) = matched_item {
+                                let item_rid = item
+                                    .get("resourceId")
+                                    .or_else(|| item.get("id"))
+                                    .and_then(|v| {
+                                        if let Some(n) = v.as_i64() {
+                                            Some(n.to_string())
+                                        } else if let Some(n) = v.as_u64() {
+                                            Some(n.to_string())
+                                        } else {
+                                            v.as_str().map(|s| s.to_string())
+                                        }
+                                    });
+                                if let Some(rid) = item_rid {
+                                    if let Ok(res_payload) = client.get_ext_captions(sib, &rid).await
+                                    {
+                                        return crate::providers::moviebox::adapt::captions_json_to_options(
+                                            &res_payload,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Vec::new()
+                    })
+                    .await
+                    .unwrap_or_default()
+                });
+            }
+        }
+
+        let (primary_res, sibling_results) =
+            tokio::join!(primary_fut, futures::future::join_all(sibling_futs));
+        if let Ok(payload) = primary_res {
             Self::append_unique_captions(
                 &mut all_captions,
                 &mut seen_urls,
                 crate::providers::moviebox::adapt::captions_json_to_options(&payload),
             );
         }
-
-        if all_captions.len() < 5 && !sibling_ids.is_empty() {
-            let mut sibling_futs = Vec::new();
-            for sib in sibling_ids.iter().take(3) {
-                if !sib.is_empty() && sib != subject_id {
-                    let client = &self.client;
-                    sibling_futs.push(async move {
-                        tokio::time::timeout(std::time::Duration::from_secs(8), async move {
-                            let page = if episode > 0 { (episode - 1) / 20 + 1 } else { 1 };
-                            if let Ok((items, _)) = client.fetch_resource_page(sib, season, episode, 0, page).await {
-                                let matched_item = find_matching_resource_item(&items, season, episode);
-                                if let Some(item) = matched_item {
-                                    let item_rid = item
-                                        .get("resourceId")
-                                        .or_else(|| item.get("id"))
-                                        .and_then(|v| {
-                                            if let Some(n) = v.as_i64() {
-                                                Some(n.to_string())
-                                            } else if let Some(n) = v.as_u64() {
-                                                Some(n.to_string())
-                                            } else {
-                                                v.as_str().map(|s| s.to_string())
-                                            }
-                                        });
-                                    if let Some(rid) = item_rid {
-                                        if let Ok(res_payload) = client.get_ext_captions(sib, &rid).await {
-                                            return crate::providers::moviebox::adapt::captions_json_to_options(
-                                                &res_payload,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            Vec::new()
-                        })
-                        .await
-                        .unwrap_or_default()
-                    });
-                }
-            }
-
-            if !sibling_futs.is_empty() {
-                let sibling_results = futures::future::join_all(sibling_futs).await;
-                for res in sibling_results {
-                    Self::append_unique_captions(&mut all_captions, &mut seen_urls, res);
-                }
-            }
+        for res in sibling_results {
+            Self::append_unique_captions(&mut all_captions, &mut seen_urls, res);
         }
         let mut deduplicated: Vec<crate::providers::models::SubtitleOption> = Vec::new();
         let mut seen_languages = std::collections::HashSet::new();
@@ -277,6 +287,14 @@ impl MovieBoxService {
                 clean_a.cmp(&clean_b)
             }
         });
+        if !subject_id.is_empty() && !resource_id.is_empty() && !deduplicated.is_empty() {
+            let sid = subject_id.to_string();
+            let rid = resource_id.to_string();
+            let to_cache = deduplicated.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::cache::set_captions_cache_typed(&sid, &rid, &to_cache);
+            });
+        }
 
         Ok(deduplicated)
     }
@@ -293,8 +311,8 @@ impl MovieBoxService {
         }
     }
     pub async fn fetch_poster_bytes(&self, url: &str) -> Option<Vec<u8>> {
-        const MAX_POSTER_BYTES: u64 = 5 * 1024 * 1024;
-        let response = self
+        const MAX_POSTER_BYTES: usize = 5 * 1024 * 1024;
+        let mut response = self
             .http_client
             .get(url)
             .header("User-Agent", crate::net::APP_HTTP_USER_AGENT)
@@ -303,22 +321,54 @@ impl MovieBoxService {
             .ok()?
             .error_for_status()
             .ok()?;
-        if response
-            .content_length()
-            .is_some_and(|len| len > MAX_POSTER_BYTES)
-        {
+        let content_len = response.content_length();
+        if content_len.is_some_and(|len| len > MAX_POSTER_BYTES as u64) {
             log::warn!(
                 "poster at {} exceeds size limit ({} bytes), skipping",
                 crate::logging::sanitize_url(url),
-                response.content_length().unwrap_or(0)
+                content_len.unwrap_or(0)
             );
             return None;
         }
-        let bytes = response.bytes().await.ok()?;
-        if bytes.len() as u64 > MAX_POSTER_BYTES {
-            return None;
+        let mut buf = Vec::with_capacity(
+            content_len
+                .map(|l| (l as usize).min(MAX_POSTER_BYTES))
+                .unwrap_or(64 * 1024),
+        );
+        while let Ok(Some(chunk)) = response.chunk().await {
+            if buf.len().saturating_add(chunk.len()) > MAX_POSTER_BYTES {
+                return None;
+            }
+            buf.extend_from_slice(&chunk);
         }
-        Some(bytes.to_vec())
+        if buf.is_empty() { None } else { Some(buf) }
+    }
+
+    pub async fn fetch_and_decode_cached_poster(
+        &self,
+        namespace: &str,
+        id: &str,
+        url: &str,
+    ) -> Option<Arc<image::DynamicImage>> {
+        let ns = namespace.to_string();
+        let id_owned = id.to_string();
+        if let Ok(Some(bytes)) = tokio::task::spawn_blocking(move || {
+            crate::cache::get_namespaced_image_cache(&ns, &id_owned)
+        })
+        .await
+            && let Some(img) = decode_poster(bytes).await
+        {
+            return Some(img);
+        }
+        let bytes = self.fetch_poster_bytes(url).await?;
+        let ns = namespace.to_string();
+        let id_owned = id.to_string();
+        let bytes_clone = bytes.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::cache::set_namespaced_image_cache(&ns, &id_owned, &bytes_clone);
+        })
+        .await;
+        decode_poster(bytes).await
     }
 
     pub async fn download_subtitle_file(
@@ -352,7 +402,7 @@ impl MovieBoxService {
             .unwrap_or_else(|| "srt".to_string());
 
         let base_dir = resolve_subtitle_dir();
-        let _ = std::fs::create_dir_all(&base_dir);
+        let _ = tokio::fs::create_dir_all(&base_dir).await;
 
         let file_stem = if let Some(pref) = preferred_filename {
             crate::download::safe_file_stem(pref)

@@ -11,7 +11,6 @@ mod favorites;
 mod keyboard;
 mod mouse;
 mod navigation;
-mod network;
 mod playback;
 mod requests;
 mod run;

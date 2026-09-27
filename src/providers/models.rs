@@ -155,6 +155,15 @@ impl MediaDetails {
         self.poster_url.as_deref()
     }
 
+    pub fn sibling_ids(&self) -> Vec<String> {
+        let mut ids = vec![self.id.value.clone()];
+        ids.extend(self.dubs.iter().map(|dub| dub.subject_id.clone()));
+        ids.retain(|s| !s.is_empty());
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
     pub fn from_search_result(
         item: &crate::models::SearchResult,
         preview: Option<&MediaDetails>,
@@ -415,6 +424,45 @@ pub fn extract_4digit_year(raw: &str) -> String {
         .and_then(|window| std::str::from_utf8(window).ok())
         .map(str::to_string)
         .unwrap_or_default()
+}
+
+pub fn parse_size_bytes(text: &str) -> Option<u64> {
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    for i in 0..parts.len() {
+        let clean = parts[i].trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.');
+        if let Ok(num) = clean.parse::<f64>()
+            && i + 1 < parts.len()
+        {
+            let unit = parts[i + 1]
+                .trim_matches(|c: char| !c.is_ascii_alphabetic())
+                .to_ascii_uppercase();
+            match unit.as_str() {
+                "TB" | "TIB" | "T" => return Some((num * 1_099_511_627_776.0) as u64),
+                "GB" | "GIB" | "G" => return Some((num * 1_073_741_824.0) as u64),
+                "MB" | "MIB" | "M" => return Some((num * 1_048_576.0) as u64),
+                "KB" | "KIB" | "K" => return Some((num * 1_024.0) as u64),
+                _ => {}
+            }
+        }
+        let upper = clean.to_ascii_uppercase();
+        for (suffix, multiplier) in [
+            ("TIB", 1_099_511_627_776.0),
+            ("TB", 1_099_511_627_776.0),
+            ("GIB", 1_073_741_824.0),
+            ("GB", 1_073_741_824.0),
+            ("MIB", 1_048_576.0),
+            ("MB", 1_048_576.0),
+            ("KIB", 1_024.0),
+            ("KB", 1_024.0),
+        ] {
+            if let Some(num_str) = upper.strip_suffix(suffix)
+                && let Ok(num) = num_str.parse::<f64>()
+            {
+                return Some((num * multiplier) as u64);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

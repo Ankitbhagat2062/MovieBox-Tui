@@ -7,13 +7,18 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 struct TerminalGuard;
 
 fn restore_terminal() {
+    if !moviebox_tui::updater::artifact::is_termux_environment() {
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::event::PopKeyboardEnhancementFlags
+        );
+    }
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::cursor::SetCursorStyle::DefaultUserShape,
         crossterm::cursor::Show,
         crossterm::event::DisableMouseCapture,
         crossterm::event::DisableFocusChange,
-        crossterm::event::PopKeyboardEnhancementFlags,
         crossterm::terminal::LeaveAlternateScreen
     );
     let _ = crossterm::terminal::disable_raw_mode();
@@ -22,18 +27,10 @@ fn restore_terminal() {
 fn purge_stale_subtitles() {
     tokio::task::spawn_blocking(|| {
         let max_age = 24 * 60 * 60;
-        let mut dirs = vec![
+        let dirs = [
             moviebox_tui::service::resolve_subtitle_dir(),
             std::env::temp_dir().join("moviebox-tui/subs"),
         ];
-        if moviebox_tui::updater::artifact::is_termux_environment()
-            && let Some(home) = dirs::home_dir()
-        {
-            let android_storage = home.join("storage/downloads/moviebox_subs");
-            if home.join("storage/downloads").exists() {
-                dirs.push(android_storage);
-            }
-        }
 
         for dir in dirs {
             if dir.exists()

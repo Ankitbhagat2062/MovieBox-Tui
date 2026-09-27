@@ -86,12 +86,8 @@ pub fn http_client_builder() -> reqwest::ClientBuilder {
     http_client_builder_base().timeout(std::time::Duration::from_secs(60))
 }
 
-pub fn streaming_client_builder() -> reqwest::ClientBuilder {
-    http_client_builder_base()
-}
-
 pub async fn probe_url(url: &str, timeout: std::time::Duration) -> bool {
-    let Ok(client) = reqwest::Client::builder()
+    let Ok(client) = http_client_builder_base()
         .timeout(timeout)
         .connect_timeout(timeout)
         .build()
@@ -114,7 +110,12 @@ pub async fn probe_url(url: &str, timeout: std::time::Duration) -> bool {
             );
         }
     }
-    match client.get(url).send().await {
+    match client
+        .get(url)
+        .header(reqwest::header::RANGE, "bytes=0-0")
+        .send()
+        .await
+    {
         Ok(resp) => resp.status().is_success() || resp.status().is_redirection(),
         Err(e) => {
             log::debug!(

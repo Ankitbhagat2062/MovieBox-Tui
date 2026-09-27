@@ -119,6 +119,42 @@ pub fn header_capable_players() -> &'static [PlayerKind] {
     }
 }
 
+pub fn is_dash_url(url: &str) -> bool {
+    let clean = url.split('?').next().unwrap_or(url);
+    clean.ends_with(".mpd") || clean.contains("/dash/")
+}
+
+pub fn ytdlp_format_selector(max_height: Option<u64>) -> String {
+    if let Some(height) = max_height.filter(|&h| h > 0) {
+        format!(
+            "bestvideo[height<={height}]+bestaudio/best[height<={height}]/bestvideo+bestaudio/best"
+        )
+    } else {
+        "bestvideo+bestaudio/best".to_string()
+    }
+}
+
+pub fn configure_detached_process(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                let _ = libc::setsid();
+                libc::signal(libc::SIGHUP, libc::SIG_IGN);
+                Ok(())
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn command(
     kind: PlayerKind,
@@ -141,10 +177,22 @@ pub fn command(
             tracker,
             max_height,
         ),
+        #[cfg(target_os = "macos")]
         PlayerKind::Iina => iina_command(
             url,
             subtitle,
             headers,
+            window,
+            resume_seconds,
+            tracker,
+            max_height,
+        ),
+        #[cfg(not(target_os = "macos"))]
+        PlayerKind::Iina => mpv_command(
+            url,
+            subtitle,
+            headers,
+            false,
             window,
             resume_seconds,
             tracker,
@@ -428,10 +476,13 @@ fn mpv_command(
         command.arg(format!("{prefix}autofit={width}x{height}"));
     }
     command.arg(format!("{prefix}geometry=50%:50%"));
+    let is_dash = is_dash_url(url);
+    command.arg(format!("{prefix}hwdec=auto-safe"));
     command.arg(format!("{prefix}cache=yes"));
+    command.arg(format!("{prefix}cache-secs=120"));
     command.arg(format!("{prefix}cache-pause=yes"));
-    command.arg(format!("{prefix}cache-pause-wait=10"));
-    command.arg(format!("{prefix}cache-pause-initial=yes"));
+    command.arg(format!("{prefix}cache-pause-wait=3"));
+    command.arg(format!("{prefix}cache-pause-initial=no"));
     let (max_bytes, back_bytes) =
         if cfg!(target_os = "android") || crate::updater::artifact::is_termux_environment() {
             ("128M", "50M")
@@ -442,20 +493,21 @@ fn mpv_command(
     command.arg(format!("{prefix}demuxer-max-back-bytes={back_bytes}"));
     command.arg(format!("{prefix}demuxer-readahead-secs=120"));
     command.arg(format!("{prefix}demuxer-lavf-buffersize=1048576"));
-    command.arg(format!("{prefix}stream-buffer-size=512k"));
-    command.arg(format!("{prefix}force-seekable=yes"));
+    command.arg(format!("{prefix}stream-buffer-size=4M"));
+    if is_dash {
+        command.arg(format!("{prefix}force-seekable=yes"));
+    } else {
+        command.arg(format!("{prefix}ytdl=no"));
+    }
     command.arg(format!(
         "{prefix}stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5"
     ));
     if !iina {
         command.arg("--idle=no").arg("--keep-open=no");
     }
-    if let Some(height) = max_height.filter(|&h| h > 0) {
-        command.arg(format!(
-            "{prefix}ytdl-format=bestvideo[height<={height}]+bestaudio/best[height<={height}]/bestvideo+bestaudio/best"
-        ));
-    } else {
-        command.arg(format!("{prefix}ytdl-format=bestvideo+bestaudio/best"));
+    let format_selector = ytdlp_format_selector(max_height);
+    command.arg(format!("{prefix}ytdl-format={format_selector}"));
+    if max_height.filter(|&h| h > 0).is_none() {
         command.arg(format!("{prefix}hls-bitrate=max"));
     }
     if let Some(start) = resume_seconds {
@@ -639,29 +691,6 @@ pub fn iina_is_app_fallback() -> bool {
     false
 }
 
-#[cfg(not(target_os = "macos"))]
-#[allow(clippy::too_many_arguments)]
-fn iina_command(
-    url: &str,
-    subtitle: Option<&str>,
-    headers: &[(String, String)],
-    window: Option<(u32, u32)>,
-    resume_seconds: Option<u64>,
-    tracker: Option<(&str, &str, usize, usize)>,
-    max_height: Option<u64>,
-) -> Command {
-    mpv_command(
-        url,
-        subtitle,
-        headers,
-        false,
-        window,
-        resume_seconds,
-        tracker,
-        max_height,
-    )
-}
-
 fn vlc_command(
     url: &str,
     subtitle: Option<&str>,
@@ -685,6 +714,8 @@ fn vlc_command(
     }
     command.arg("--play-and-exit");
     command.arg("--network-caching=3000");
+    command.arg("--file-caching=3000");
+    command.arg("--http-reconnect");
     command.arg("--adaptive-logic=predictive");
     if let Some(height) = max_height.filter(|&h| h > 0) {
         command.arg(format!("--adaptive-maxheight={height}"));
@@ -1897,15 +1928,17 @@ mod tests {
         assert!(args.contains(&"--sub-file=/tmp/test.srt".to_string()));
         assert!(args.contains(&"--start=120".to_string()));
         assert!(args.contains(&"--autofit=1920x1080".to_string()));
+        assert!(args.contains(&"--hwdec=auto-safe".to_string()));
         assert!(args.contains(&"--cache=yes".to_string()));
+        assert!(args.contains(&"--cache-secs=120".to_string()));
         assert!(args.contains(&"--cache-pause=yes".to_string()));
-        assert!(args.contains(&"--cache-pause-wait=10".to_string()));
-        assert!(args.contains(&"--cache-pause-initial=yes".to_string()));
+        assert!(args.contains(&"--cache-pause-wait=3".to_string()));
+        assert!(args.contains(&"--cache-pause-initial=no".to_string()));
         assert!(args.contains(&"--demuxer-max-bytes=256M".to_string()));
         assert!(args.contains(&"--demuxer-readahead-secs=120".to_string()));
         assert!(args.contains(&"--demuxer-lavf-buffersize=1048576".to_string()));
-        assert!(args.contains(&"--stream-buffer-size=512k".to_string()));
-        assert!(args.contains(&"--force-seekable=yes".to_string()));
+        assert!(args.contains(&"--stream-buffer-size=4M".to_string()));
+        assert!(args.contains(&"--ytdl=no".to_string()));
         assert!(args.contains(
             &"--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5".to_string()
         ));
@@ -1942,6 +1975,8 @@ mod tests {
             .collect();
 
         assert!(args.contains(&"--network-caching=3000".to_string()));
+        assert!(args.contains(&"--file-caching=3000".to_string()));
+        assert!(args.contains(&"--http-reconnect".to_string()));
         assert!(args.contains(&"--adaptive-logic=predictive".to_string()));
         assert!(args.contains(&"--http-user-agent=VLC-Agent".to_string()));
         assert!(args.contains(&"--http-referrer=https://cdn.example.com".to_string()));
@@ -1988,5 +2023,25 @@ mod tests {
                 std::env::remove_var("WAYLAND_DISPLAY");
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_configure_detached_process_survives_sighup() {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "sleep 0.2"]);
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+        super::configure_detached_process(&mut cmd);
+        let mut child = cmd.spawn().expect("spawn detached sh");
+        let pid = child.id() as libc::pid_t;
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        unsafe {
+            libc::kill(pid, libc::SIGHUP);
+            libc::kill(-pid, libc::SIGHUP);
+        }
+        let status = child.wait().expect("wait detached sh");
+        assert!(status.success());
     }
 }

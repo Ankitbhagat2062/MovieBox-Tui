@@ -20,40 +20,10 @@ pub async fn perform_self_update(
         .map_err(|e| format!("failed to get current executable path: {e}"))?;
 
     let env = detect_environment(&current_exe);
-    match env {
-        InstallationEnvironment::Homebrew => {
-            return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "This installation is managed by Homebrew. Run: brew upgrade moviebox-tui"
-                    .to_string(),
-            ));
-        }
-        InstallationEnvironment::Scoop => {
-            return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "This installation is managed by Scoop. Run: scoop update moviebox-tui".to_string(),
-            ));
-        }
-        InstallationEnvironment::Termux => {
-            return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "Android / Termux update: run 'curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash'".to_string(),
-            ));
-        }
-        InstallationEnvironment::Flatpak => {
-            return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "Running inside Flatpak. Please update via: flatpak update".to_string(),
-            ));
-        }
-        InstallationEnvironment::Snap => {
-            return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "Running inside Snap. Please update via: sudo snap refresh moviebox-tui"
-                    .to_string(),
-            ));
-        }
-        InstallationEnvironment::ReadOnly => {
-            return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "MovieBox-Tui binary is not user-writable. Please update via your system package manager.".to_string(),
-            ));
-        }
-        InstallationEnvironment::DirectReplace | InstallationEnvironment::WindowsHelper => {}
+    if let Some(instruction) = env.upgrade_instruction() {
+        return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
+            instruction.to_string(),
+        ));
     }
 
     let platform = TargetPlatform::current().ok_or_else(|| {

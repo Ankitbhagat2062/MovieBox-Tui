@@ -181,69 +181,11 @@ fn sync_parent_dir(path: &std::path::Path) {
 fn sync_parent_dir(_path: &std::path::Path) {}
 
 pub async fn atomic_write_file_async(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await.ok();
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let temporary = path.with_extension(format!("tmp-{}-{stamp}", std::process::id()));
-    write_durable_async(&temporary, bytes).await?;
-    match durable_replace_async(&temporary, path, &format!("{stamp}-f")).await {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let _ = tokio::fs::remove_file(&temporary).await;
-            Err(error)
-        }
-    }
-}
-
-async fn write_durable_async(target: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use tokio::io::AsyncWriteExt;
-    let mut file = tokio::fs::File::create(target).await?;
-    file.write_all(bytes).await?;
-    file.sync_all().await
-}
-
-async fn durable_replace_async(
-    temporary: &std::path::Path,
-    path: &std::path::Path,
-    suffix: &str,
-) -> std::io::Result<()> {
-    if tokio::fs::rename(temporary, path).await.is_ok() {
-        sync_parent_dir(path);
-        return Ok(());
-    }
-    let _ = tokio::fs::remove_file(path).await;
-    if tokio::fs::rename(temporary, path).await.is_ok() {
-        sync_parent_dir(path);
-        return Ok(());
-    }
-    let copy_target = path.with_extension(format!("tmp-{}-{suffix}", std::process::id()));
-    let outcome: std::io::Result<()> = async {
-        tokio::fs::copy(temporary, &copy_target).await?;
-        let file = tokio::fs::File::open(&copy_target).await?;
-        file.sync_all().await?;
-        let _ = tokio::fs::remove_file(path).await;
-        tokio::fs::rename(&copy_target, path).await
-    }
-    .await;
-    let _ = tokio::fs::remove_file(&copy_target).await;
-    match outcome {
-        Ok(()) => {
-            sync_parent_dir(path);
-            Ok(())
-        }
-        Err(_) => Err(std::io::Error::other(format!(
-            "atomic replace async failed for {}",
-            crate::logging::sanitize_path(path)
-        ))),
-    }
-}
-
-fn hash_key(value: &str) -> String {
-    md5_hex(value)
+    let path_buf = path.to_path_buf();
+    let payload = bytes.to_vec();
+    tokio::task::spawn_blocking(move || atomic_write_file(&path_buf, &payload))
+        .await
+        .map_err(|err| std::io::Error::other(format!("atomic write task failed: {err}")))?
 }
 
 pub fn get_provider_cache_dir(provider: ProviderKind, subdir: &str) -> PathBuf {
@@ -264,7 +206,7 @@ pub fn get_provider_stream_path(
     } else {
         ""
     };
-    let hashed_id = hash_key(subject_id);
+    let hashed_id = md5_hex(subject_id);
     path.push(format!("{schema}{hashed_id}_{season}_{episode}.cache"));
     path
 }
@@ -400,7 +342,7 @@ pub fn get_provider_details_path(provider: ProviderKind, subject_id: &str) -> Pa
     } else {
         ""
     };
-    let hashed_id = hash_key(subject_id);
+    let hashed_id = md5_hex(subject_id);
     path.push(format!("details_{schema}{hashed_id}.cache"));
     path
 }
@@ -429,7 +371,7 @@ pub fn invalidate_provider_details_cache(provider: ProviderKind, subject_id: &st
 
 pub fn get_provider_search_path(provider: ProviderKind, query: &str, page: usize) -> PathBuf {
     let mut path = get_provider_cache_dir(provider, "search");
-    let hashed = hash_key(query);
+    let hashed = md5_hex(query);
     path.push(format!("{hashed}_{page}.cache"));
     path
 }
@@ -482,7 +424,7 @@ pub fn set_homepage_cache_typed(
 
 pub fn get_addon_catalog_path(manifest_url: &str, r_type: &str, catalog_id: &str) -> PathBuf {
     let mut path = get_provider_cache_dir(ProviderKind::Addons, "catalogs");
-    let hashed = hash_key(&format!("{manifest_url}_{r_type}_{catalog_id}"));
+    let hashed = md5_hex(&format!("{manifest_url}_{r_type}_{catalog_id}"));
     path.push(format!("catalog_{hashed}.cache"));
     path
 }
@@ -508,7 +450,7 @@ pub fn set_addon_catalog_cache_typed(
 
 pub fn get_addon_manifest_path(manifest_url: &str) -> PathBuf {
     let mut path = get_provider_cache_dir(ProviderKind::Addons, "manifests");
-    let hashed = hash_key(manifest_url);
+    let hashed = md5_hex(manifest_url);
     path.push(format!("manifest_{hashed}.cache"));
     path
 }
@@ -527,7 +469,7 @@ fn get_namespaced_image_path(namespace: &str, id: &str) -> PathBuf {
     let mut path = crate::config::cache_dir();
     path.push(namespace);
     path.push("images");
-    let safe_name = hash_key(id);
+    let safe_name = md5_hex(id);
     path.push(format!("{safe_name}.img"));
     path
 }
@@ -571,7 +513,7 @@ pub fn set_namespaced_image_cache(namespace: &str, id: &str, bytes: &[u8]) {
 
 pub fn get_captions_path(subject_id: &str, resource_id: &str) -> PathBuf {
     let mut path = get_provider_cache_dir(ProviderKind::MovieBox, "captions");
-    let hashed_id = hash_key(&format!("{}_{}", subject_id, resource_id));
+    let hashed_id = md5_hex(&format!("{}_{}", subject_id, resource_id));
     path.push(format!("captions_{}.cache", hashed_id));
     path
 }
@@ -682,7 +624,10 @@ fn purge_subtitle_cache_files(dir: &Path, errors: &mut Vec<String>) {
         if path.is_file() {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 let lower = ext.to_ascii_lowercase();
-                if matches!(lower.as_str(), "srt" | "vtt" | "sub" | "ass" | "tmp") {
+                if matches!(
+                    lower.as_str(),
+                    "srt" | "vtt" | "sub" | "ass" | "ssa" | "tmp" | "log"
+                ) {
                     if let Err(err) = resilient_remove_file(&path) {
                         if err.kind() != std::io::ErrorKind::NotFound {
                             errors.push(format!(
@@ -714,13 +659,9 @@ pub fn clear_all_cache() -> Result<(), String> {
             let _ = fs::remove_dir(&legacy);
         }
     }
-    if crate::updater::artifact::is_termux_environment()
-        && let Some(home) = dirs::home_dir()
-    {
-        let storage = home.join("storage/downloads/moviebox_subs");
-        if storage.exists() {
-            purge_subtitle_cache_files(&storage, &mut errors);
-        }
+    let sub_dir = crate::service::resolve_subtitle_dir();
+    if sub_dir.exists() {
+        purge_subtitle_cache_files(&sub_dir, &mut errors);
     }
     let temp_subs = std::env::temp_dir().join("moviebox-tui").join("subs");
     if temp_subs.exists() {

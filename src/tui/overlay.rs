@@ -431,14 +431,54 @@ pub fn browse_category_badge<'a>(label: &str, theme: &'a Theme) -> (Span<'a>, &'
     }
 }
 
-pub fn notifications(
-    frame: &mut Frame,
+struct NotificationCard<'a> {
+    original_idx: usize,
+    notification: &'a Notification,
+    rect: Rect,
+    inner_width: usize,
+    msg_lines: Vec<String>,
+}
+
+fn notification_badge(kind: NotificationKind, basic_terminal: bool) -> &'static str {
+    match kind {
+        NotificationKind::Info => {
+            if basic_terminal {
+                "i INFO"
+            } else {
+                "ℹ INFO"
+            }
+        }
+        NotificationKind::Success => {
+            if basic_terminal {
+                "+ SUCCESS"
+            } else {
+                "✔ SUCCESS"
+            }
+        }
+        NotificationKind::Warning => {
+            if basic_terminal {
+                "! WARNING"
+            } else {
+                "⚠ WARNING"
+            }
+        }
+        NotificationKind::Error => {
+            if basic_terminal {
+                "x ERROR"
+            } else {
+                "✖ ERROR"
+            }
+        }
+    }
+}
+
+fn compute_notification_cards<'a>(
     area: Rect,
-    notifications: &std::collections::VecDeque<Notification>,
-    theme: &Theme,
+    notifications: &'a std::collections::VecDeque<Notification>,
     basic_terminal: bool,
     download_active: bool,
-) {
+) -> Vec<NotificationCard<'a>> {
+    let mut cards = Vec::new();
     let bottom_offset = if download_active { 5 } else { 2 };
     let mut y = area.bottom().saturating_sub(bottom_offset);
 
@@ -452,8 +492,8 @@ pub fn notifications(
         (3, 64.min(area.width.saturating_sub(4) as usize), 3)
     };
 
-    for notification in notifications.iter().rev().take(max_visible) {
-        let (badge, badge_style) = notification_style(notification.kind, theme, basic_terminal);
+    for (rev_idx, notification) in notifications.iter().rev().take(max_visible).enumerate() {
+        let badge = notification_badge(notification.kind, basic_terminal);
         let has_message =
             !notification.message.is_empty() && notification.message != notification.title;
 
@@ -494,7 +534,7 @@ pub fn notifications(
         }
         y = y.saturating_sub(height);
 
-        let toast_area = Rect::new(
+        let rect = Rect::new(
             area.right()
                 .saturating_sub(target_card_width)
                 .saturating_sub(2),
@@ -503,27 +543,54 @@ pub fn notifications(
             height,
         );
 
-        crate::tui::clear_area(frame, toast_area, theme);
+        let original_idx = notifications.len().saturating_sub(1 + rev_idx);
+        cards.push(NotificationCard {
+            original_idx,
+            notification,
+            rect,
+            inner_width,
+            msg_lines,
+        });
+
+        y = y.saturating_sub(1);
+    }
+    cards
+}
+
+pub fn notifications(
+    frame: &mut Frame,
+    area: Rect,
+    notifications: &std::collections::VecDeque<Notification>,
+    theme: &Theme,
+    basic_terminal: bool,
+    download_active: bool,
+) {
+    for card in compute_notification_cards(area, notifications, basic_terminal, download_active) {
+        let (badge, badge_style) =
+            notification_style(card.notification.kind, theme, basic_terminal);
+
+        crate::tui::clear_area(frame, card.rect, theme);
 
         let mut lines = Vec::new();
         lines.push(Line::from(vec![Span::styled(
-            crate::tui::text::truncate_width(&notification.title, inner_width),
+            crate::tui::text::truncate_width(&card.notification.title, card.inner_width),
             badge_style.add_modifier(Modifier::BOLD),
         )]));
 
-        for line in &msg_lines {
+        for line in &card.msg_lines {
             lines.push(Line::from(vec![Span::styled(
-                crate::tui::text::truncate_width(line, inner_width),
+                crate::tui::text::truncate_width(line, card.inner_width),
                 theme.subtext1,
             )]));
         }
 
-        let total_duration = notification.kind.total_duration();
-        let remaining = notification
+        let total_duration = card.notification.kind.total_duration();
+        let remaining = card
+            .notification
             .expires_at
             .saturating_duration_since(std::time::Instant::now());
         let ratio = (remaining.as_secs_f64() / total_duration.as_secs_f64()).clamp(0.0, 1.0);
-        let bar_width = inner_width.clamp(3, 16);
+        let bar_width = card.inner_width.clamp(3, 16);
         let filled = ((bar_width as f64) * ratio).round() as usize;
         let countdown_bar = if basic_terminal {
             format!(
@@ -556,9 +623,7 @@ pub fn notifications(
             .border_style(badge_style)
             .padding(ratatui::widgets::Padding::horizontal(1));
 
-        frame.render_widget(Paragraph::new(lines).block(block), toast_area);
-
-        y = y.saturating_sub(1);
+        frame.render_widget(Paragraph::new(lines).block(block), card.rect);
     }
 }
 
@@ -645,36 +710,13 @@ fn notification_style(
     theme: &Theme,
     basic_terminal: bool,
 ) -> (&'static str, Style) {
-    match kind {
-        NotificationKind::Info => (
-            if basic_terminal { "i INFO" } else { "ℹ INFO" },
-            theme.sapphire,
-        ),
-        NotificationKind::Success => (
-            if basic_terminal {
-                "+ SUCCESS"
-            } else {
-                "✔ SUCCESS"
-            },
-            theme.success,
-        ),
-        NotificationKind::Warning => (
-            if basic_terminal {
-                "! WARNING"
-            } else {
-                "⚠ WARNING"
-            },
-            theme.rating,
-        ),
-        NotificationKind::Error => (
-            if basic_terminal {
-                "x ERROR"
-            } else {
-                "✖ ERROR"
-            },
-            theme.error,
-        ),
-    }
+    let style = match kind {
+        NotificationKind::Info => theme.sapphire,
+        NotificationKind::Success => theme.success,
+        NotificationKind::Warning => theme.rating,
+        NotificationKind::Error => theme.error,
+    };
+    (notification_badge(kind, basic_terminal), style)
 }
 
 pub fn notification_rects(
@@ -683,79 +725,10 @@ pub fn notification_rects(
     basic_terminal: bool,
     download_active: bool,
 ) -> Vec<(usize, Rect)> {
-    let mut rects = Vec::new();
-    let bottom_offset = if download_active { 5 } else { 2 };
-    let mut y = area.bottom().saturating_sub(bottom_offset);
-    let theme_placeholder = Theme::default();
-
-    let (max_visible, max_card_w, max_msg_lines) = if area.height < 20 {
-        (1, 42.min(area.width.saturating_sub(4) as usize), 1)
-    } else if area.width < 65 {
-        (1, 42.min(area.width.saturating_sub(4) as usize), 2)
-    } else if area.height < 30 {
-        (2, 56.min(area.width.saturating_sub(4) as usize), 2)
-    } else {
-        (3, 64.min(area.width.saturating_sub(4) as usize), 3)
-    };
-
-    for (rev_idx, notification) in notifications.iter().rev().take(max_visible).enumerate() {
-        let (badge, _) = notification_style(notification.kind, &theme_placeholder, basic_terminal);
-        let has_message =
-            !notification.message.is_empty() && notification.message != notification.title;
-
-        let title_w = crate::tui::text::width(&notification.title).saturating_add(6);
-        let badge_w = crate::tui::text::width(badge).saturating_add(6);
-        let raw_msg_w = if has_message {
-            notification
-                .message
-                .lines()
-                .map(|line| crate::tui::text::width(line.trim()))
-                .max()
-                .unwrap_or(0)
-                .saturating_add(6)
-        } else {
-            0
-        };
-
-        let target_card_width = title_w
-            .max(badge_w)
-            .max(raw_msg_w)
-            .clamp(20, max_card_w.max(20)) as u16;
-
-        let inner_width = (target_card_width.saturating_sub(4) as usize).max(1);
-
-        let msg_lines: Vec<String> = if has_message {
-            crate::tui::text::wrap_text(&notification.message, inner_width)
-                .into_iter()
-                .take(max_msg_lines)
-                .collect()
-        } else {
-            Vec::new()
-        };
-
-        let height = 2 + 1 + msg_lines.len() as u16;
-
-        if target_card_width < 10 || y < area.y.saturating_add(height) {
-            break;
-        }
-
-        y = y.saturating_sub(height);
-
-        let toast_area = Rect::new(
-            area.right()
-                .saturating_sub(target_card_width)
-                .saturating_sub(2),
-            y,
-            target_card_width,
-            height,
-        );
-
-        let original_idx = notifications.len().saturating_sub(1 + rev_idx);
-        rects.push((original_idx, toast_area));
-
-        y = y.saturating_sub(1);
-    }
-    rects
+    compute_notification_cards(area, notifications, basic_terminal, download_active)
+        .into_iter()
+        .map(|card| (card.original_idx, card.rect))
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

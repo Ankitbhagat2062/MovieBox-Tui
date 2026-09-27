@@ -249,38 +249,6 @@ pub fn parse_codec(text: &str) -> Option<String> {
     }
 }
 
-pub fn parse_size_bytes_from_text(text: &str) -> Option<u64> {
-    let lower = text.to_ascii_lowercase();
-    let parts: Vec<&str> = lower.split_whitespace().collect();
-    for i in 0..parts.len() {
-        let clean = parts[i].trim_matches(|c: char| !c.is_alphanumeric() && c != '.');
-        if let Ok(num) = clean.parse::<f64>() {
-            if i + 1 < parts.len() {
-                let unit = parts[i + 1]
-                    .trim_matches(|c: char| !c.is_alphabetic())
-                    .to_ascii_uppercase();
-                if unit == "GB" || unit == "GIB" || unit == "G" {
-                    return Some((num * 1_073_741_824.0) as u64);
-                } else if unit == "MB" || unit == "MIB" || unit == "M" {
-                    return Some((num * 1_048_576.0) as u64);
-                }
-            }
-        }
-        if clean.ends_with("gb") || clean.ends_with("gib") {
-            let num_str = clean.trim_end_matches("gb").trim_end_matches("gib");
-            if let Ok(num) = num_str.parse::<f64>() {
-                return Some((num * 1_073_741_824.0) as u64);
-            }
-        } else if clean.ends_with("mb") || clean.ends_with("mib") {
-            let num_str = clean.trim_end_matches("mb").trim_end_matches("mib");
-            if let Ok(num) = num_str.parse::<f64>() {
-                return Some((num * 1_048_576.0) as u64);
-            }
-        }
-    }
-    None
-}
-
 pub fn parse_audio_tracks(text: &str) -> Option<String> {
     let upper = text.to_ascii_uppercase();
     let mut langs = Vec::new();
@@ -558,7 +526,7 @@ pub fn stream_item_to_release(
         .behavior_hints
         .as_ref()
         .and_then(|h| h.video_size)
-        .or_else(|| parse_size_bytes_from_text(&combined_text));
+        .or_else(|| crate::providers::models::parse_size_bytes(&combined_text));
 
     let raw_filename = stream
         .title

@@ -1,4 +1,4 @@
-use super::{App, network};
+use super::App;
 use crate::models::CatalogItem;
 use crate::providers::models::{ProviderKind, RequestContext};
 use crate::tui::{
@@ -688,7 +688,7 @@ impl App {
                     })
                     .await
                     {
-                        if let Some(img) = network::decode_poster(bytes).await {
+                        if let Some(img) = crate::service::decode_poster(bytes).await {
                             tx.send(Action::SearchPosterLoaded(id_clone, Some(img)))
                                 .ok();
                             return;
@@ -723,7 +723,7 @@ impl App {
                                     return;
                                 }
 
-                                if let Some(img) = network::decode_poster(bytes).await {
+                                if let Some(img) = crate::service::decode_poster(bytes).await {
                                     tx.send(Action::SearchPosterLoaded(id, Some(img))).ok();
                                     return;
                                 }

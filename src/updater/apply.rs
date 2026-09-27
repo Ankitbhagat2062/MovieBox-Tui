@@ -23,8 +23,30 @@ pub enum InstallationEnvironment {
 }
 
 impl InstallationEnvironment {
+    pub fn upgrade_instruction(&self) -> Option<&'static str> {
+        match self {
+            Self::Homebrew => {
+                Some("This installation is managed by Homebrew. Run: brew upgrade moviebox-tui")
+            }
+            Self::Scoop => {
+                Some("This installation is managed by Scoop. Run: scoop update moviebox-tui")
+            }
+            Self::Termux => Some(
+                "Android / Termux update: run 'curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash'",
+            ),
+            Self::Flatpak => Some("Running inside Flatpak. Please update via: flatpak update"),
+            Self::Snap => {
+                Some("Running inside Snap. Please update via: sudo snap refresh moviebox-tui")
+            }
+            Self::ReadOnly => Some(
+                "MovieBox-Tui binary is not user-writable. Please update via your system package manager.",
+            ),
+            Self::DirectReplace | Self::WindowsHelper => None,
+        }
+    }
+
     pub fn has_managed_notice(&self) -> bool {
-        !matches!(self, Self::DirectReplace | Self::WindowsHelper)
+        self.upgrade_instruction().is_some()
     }
 }
 
@@ -121,37 +143,13 @@ pub fn apply_staged_binary(
 ) -> Result<SelfUpdateOutcome, String> {
     let env = detect_environment(current_exe);
 
+    if let Some(instruction) = env.upgrade_instruction() {
+        return Ok(SelfUpdateOutcome::RequiresManualUpgrade(
+            instruction.to_string(),
+        ));
+    }
+
     match env {
-        InstallationEnvironment::Homebrew => {
-            Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "This installation is managed by Homebrew. Run: brew upgrade moviebox-tui".to_string(),
-            ))
-        }
-        InstallationEnvironment::Scoop => {
-            Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "This installation is managed by Scoop. Run: scoop update moviebox-tui".to_string(),
-            ))
-        }
-        InstallationEnvironment::Termux => {
-            Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "Android / Termux update: run 'curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash'".to_string(),
-            ))
-        }
-        InstallationEnvironment::Flatpak => {
-            Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "Running inside Flatpak. Please update via: flatpak update".to_string(),
-            ))
-        }
-        InstallationEnvironment::Snap => {
-            Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "Running inside Snap. Please update via: sudo snap refresh moviebox-tui".to_string(),
-            ))
-        }
-        InstallationEnvironment::ReadOnly => {
-            Ok(SelfUpdateOutcome::RequiresManualUpgrade(
-                "MovieBox-Tui binary is not user-writable. Please update via your system package manager.".to_string(),
-            ))
-        }
         InstallationEnvironment::DirectReplace => {
             replace_binary_with_backup(staged_path, current_exe)?;
             Ok(SelfUpdateOutcome::Success)
@@ -163,6 +161,7 @@ pub fn apply_staged_binary(
             }
             result.map(|_| SelfUpdateOutcome::Success)
         }
+        _ => unreachable!(),
     }
 }
 
@@ -178,9 +177,6 @@ pub fn stale_update_artifacts(current_exe: &Path) -> Vec<PathBuf> {
 }
 
 pub fn cleanup_stale_update_artifacts(current_exe: &Path) {
-    if !cfg!(windows) {
-        return;
-    }
     for path in stale_update_artifacts(current_exe) {
         let _ = std::fs::remove_file(path);
     }
@@ -213,6 +209,9 @@ fn replace_binary_with_backup(staged_path: &Path, current_exe: &Path) -> Result<
 
     if let Err(err) = install_result {
         if backup_path.exists() {
+            if current_exe.exists() {
+                let _ = std::fs::remove_file(current_exe);
+            }
             let _ = std::fs::rename(&backup_path, current_exe);
         }
         return Err(err);
@@ -381,7 +380,6 @@ mod tests {
         assert_eq!(*lines.last().expect("non-empty"), "del \"%~f0\"");
     }
 
-    #[cfg(windows)]
     #[test]
     fn cleanup_removes_only_known_artifacts() {
         let dir = std::env::temp_dir().join(format!("mbx_apply_test_{}", std::process::id()));

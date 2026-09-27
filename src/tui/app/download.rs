@@ -3,10 +3,6 @@ use crate::providers::models::ProviderKind;
 use crate::tui::{action::Action, overlay::NotificationKind, state::Screen};
 
 impl App {
-    pub(super) fn resolve_download_base_dir(&self) -> std::path::PathBuf {
-        crate::service::resolve_download_dir(self.state.download_dir.as_deref())
-    }
-
     pub(super) fn start_resilient_download(
         &mut self,
         subtitle_url: Option<String>,
@@ -63,21 +59,14 @@ impl App {
             .unwrap_or("mp4")
             .to_ascii_lowercase();
 
-        let base_dir = self.resolve_download_base_dir();
-        let (target_dir, base_name) = if is_series {
-            (
-                base_dir
-                    .join("Series")
-                    .join(&safe_title)
-                    .join(format!("Season {season}")),
-                format!("{safe_title} - S{season:02}E{episode:02}"),
-            )
-        } else {
-            (
-                base_dir.join("Movies").join(&safe_title),
-                safe_title.clone(),
-            )
-        };
+        let base_dir = crate::service::resolve_download_dir(self.state.download_dir.as_deref());
+        let (target_dir, base_name) = crate::download::resolve_media_target(
+            &base_dir,
+            &safe_title,
+            is_series,
+            season,
+            episode,
+        );
         let destination = target_dir.join(format!("{base_name}.{extension}"));
         {
             let resolved_base =
@@ -128,7 +117,7 @@ impl App {
         let sender = self.action_sender.clone();
         let user_agent = self.service.client.user_agent().to_string();
 
-        let mut client_builder = crate::net::streaming_client_builder()
+        let mut client_builder = crate::net::http_client_builder_base()
             .connect_timeout(std::time::Duration::from_secs(15))
             .tcp_keepalive(std::time::Duration::from_secs(30));
 
@@ -155,10 +144,10 @@ impl App {
                 log::warn!(
                     "failed to build custom download client ({err}), falling back to default"
                 );
-                self.service.http_client().clone()
+                self.service.http_client.clone()
             });
 
-        let is_dash = link.ends_with(".mpd") || link.contains("/dash/");
+        let is_dash = crate::player::is_dash_url(&link);
 
         self.request_tasks.cancel_download();
         let validation_base_dir = base_dir.clone();
@@ -272,7 +261,7 @@ impl App {
                         cmd.arg("--add-header").arg(format!("{clean_k}: {clean_v}"));
                     }
                 }
-                let format_spec = ytdlp_format_selector(max_height);
+                let format_spec = crate::player::ytdlp_format_selector(max_height);
                 cmd.arg("-f")
                     .arg(format_spec)
                     .arg("--newline")
@@ -687,14 +676,7 @@ impl App {
                         .state
                         .selected_details
                         .as_ref()
-                        .map(|d| {
-                            let mut ids = vec![d.id.value.clone()];
-                            ids.extend(d.dubs.iter().map(|dub| dub.subject_id.clone()));
-                            ids.retain(|s| !s.is_empty());
-                            ids.sort();
-                            ids.dedup();
-                            ids
-                        })
+                        .map(|d| d.sibling_ids())
                         .unwrap_or_default();
                     let season = self.state.selected_season;
                     let episode = self.state.selected_episode;
@@ -757,12 +739,15 @@ impl App {
                     let clean_title = crate::providers::moviebox::clean_moviebox_title(raw_title);
                     let safe_title = crate::download::safe_file_stem(clean_title);
 
-                    let base_dir = self.resolve_download_base_dir();
-                    let target_dir = base_dir
-                        .join("Series")
-                        .join(&safe_title)
-                        .join(format!("Season {season}"));
-                    let base_name = format!("{safe_title} - S{season:02}E{episode:02}");
+                    let base_dir =
+                        crate::service::resolve_download_dir(self.state.download_dir.as_deref());
+                    let (target_dir, base_name) = crate::download::resolve_media_target(
+                        &base_dir,
+                        &safe_title,
+                        true,
+                        season,
+                        episode,
+                    );
 
                     if is_media_already_downloaded(&target_dir, &base_name) {
                         self.state.notify(
@@ -1056,15 +1041,6 @@ pub(crate) fn yt_dlp_missing_guidance() -> String {
         "DASH streams require yt-dlp & ffmpeg.".to_string()
     }
 }
-pub(crate) fn ytdlp_format_selector(max_height: Option<u64>) -> String {
-    if let Some(height) = max_height.filter(|&h| h > 0) {
-        format!(
-            "bestvideo[height<={height}]+bestaudio/best[height<={height}]/bestvideo+bestaudio/best"
-        )
-    } else {
-        "bestvideo+bestaudio/best".to_string()
-    }
-}
 
 pub(crate) fn parse_ytdlp_progress(line: &str) -> Option<(f64, String)> {
     if !line.contains("[download]") || line.contains("Destination:") {
@@ -1149,7 +1125,6 @@ pub(crate) fn parse_ytdlp_progress(line: &str) -> Option<(f64, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::providers::models::{ProviderKind, Release, SourceMirror};
     use crate::tui::action::Action;
     use crate::tui::app::App;
@@ -1380,7 +1355,7 @@ mod tests {
                     Some("https://example.com/dash/123/index.mpd")
                 );
                 assert_eq!(max_height, Some(480));
-                let format_spec = ytdlp_format_selector(max_height);
+                let format_spec = crate::player::ytdlp_format_selector(max_height);
                 assert_eq!(
                     format_spec,
                     "bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best"
@@ -1401,7 +1376,7 @@ mod tests {
         match dispatched {
             Action::StartDownload(_, _, _, max_height) => {
                 assert_eq!(max_height, Some(720));
-                let format_spec = ytdlp_format_selector(max_height);
+                let format_spec = crate::player::ytdlp_format_selector(max_height);
                 assert_eq!(
                     format_spec,
                     "bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best"
@@ -1414,28 +1389,35 @@ mod tests {
     #[test]
     fn test_ytdlp_format_selector_specs() {
         assert_eq!(
-            ytdlp_format_selector(Some(480)),
+            crate::player::ytdlp_format_selector(Some(480)),
             "bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best"
         );
         assert_eq!(
-            ytdlp_format_selector(Some(720)),
+            crate::player::ytdlp_format_selector(Some(720)),
             "bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best"
         );
         assert_eq!(
-            ytdlp_format_selector(Some(1080)),
+            crate::player::ytdlp_format_selector(Some(1080)),
             "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best"
         );
-        assert_eq!(ytdlp_format_selector(None), "bestvideo+bestaudio/best");
-        assert_eq!(ytdlp_format_selector(Some(0)), "bestvideo+bestaudio/best");
+        assert_eq!(
+            crate::player::ytdlp_format_selector(None),
+            "bestvideo+bestaudio/best"
+        );
+        assert_eq!(
+            crate::player::ytdlp_format_selector(Some(0)),
+            "bestvideo+bestaudio/best"
+        );
     }
     #[test]
     fn test_download_directory_and_filename_conventions() {
         let base_dir = std::path::PathBuf::from("/tmp/MovieBox-TUI");
 
         let movie_title = "Ek Deewane Ki Deewaniyat";
-        let movie_target = base_dir.join("Movies").join(movie_title);
-        let movie_file = movie_target.join(format!("{movie_title}.mp4"));
-        let movie_sub = movie_target.join(format!("{movie_title}.en.srt"));
+        let (movie_target, movie_base) =
+            crate::download::resolve_media_target(&base_dir, movie_title, false, 1, 1);
+        let movie_file = movie_target.join(format!("{movie_base}.mp4"));
+        let movie_sub = movie_target.join(format!("{movie_base}.en.srt"));
 
         let expected_movie_file = base_dir
             .join("Movies")
@@ -1451,11 +1433,8 @@ mod tests {
         let series_title = "Breaking Bad";
         let season: usize = 1;
         let episode: usize = 1;
-        let series_target = base_dir
-            .join("Series")
-            .join(series_title)
-            .join(format!("Season {season}"));
-        let base_name = format!("{series_title} - S{season:02}E{episode:02}");
+        let (series_target, base_name) =
+            crate::download::resolve_media_target(&base_dir, series_title, true, season, episode);
         let series_file = series_target.join(format!("{base_name}.mp4"));
         let series_sub = series_target.join(format!("{base_name}.en.srt"));
 

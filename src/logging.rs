@@ -1,8 +1,9 @@
 use flexi_logger::{Cleanup, Criterion, FileSpec, Logger, LoggerHandle, Naming, WriteMode};
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 static LOGGER_HANDLE: OnceLock<LoggerHandle> = OnceLock::new();
-
+static HOME_DIR: LazyLock<Option<String>> =
+    LazyLock::new(|| dirs::home_dir().and_then(|home| home.to_str().map(|home| home.to_string())));
 pub fn init() {
     let default_level = "info";
     let spec = std::env::var("MOVIEBOX_LOG")
@@ -34,7 +35,7 @@ pub fn init() {
             Naming::Numbers,
             Cleanup::KeepLogFiles(3),
         )
-        .write_mode(WriteMode::Direct)
+        .write_mode(WriteMode::BufferAndFlush)
         .format(flexi_logger::opt_format)
         .start()
     {
@@ -71,9 +72,9 @@ pub fn display_path() -> String {
 
 pub fn sanitize_path(path: impl AsRef<std::path::Path>) -> String {
     let raw = path.as_ref().to_string_lossy().into_owned();
-    dirs::home_dir()
-        .and_then(|home| home.to_str().map(|home| home.to_string()))
-        .map(|home| raw.replacen(&home, "~", 1))
+    HOME_DIR
+        .as_deref()
+        .map(|home| raw.replacen(home, "~", 1))
         .unwrap_or(raw)
 }
 

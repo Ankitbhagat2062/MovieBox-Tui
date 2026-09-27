@@ -282,7 +282,9 @@ impl App {
                 .record_start(item, resume_seconds.unwrap_or(0));
         }
 
-        if let (Some((p, s, se, ep)), Some(item)) = (&tracker_opts, &history_item) {
+        if matches!(kind, crate::tui::state::PlayerKind::Mpv)
+            && let (Some((p, s, se, ep)), Some(item)) = (&tracker_opts, &history_item)
+        {
             if let Some(state_path) = crate::player::tracker::state_file_path(p, s, *se, *ep) {
                 let initial_state = crate::history::PendingPlaybackState::from_item(
                     item,
@@ -360,7 +362,8 @@ impl App {
                             crate::logging::sanitize_url(url)
                         );
                         let _ = sender.send(Action::SetStatus(
-                            "External subtitle unavailable; playing stream directly.".to_string(),
+                            "Warning: External subtitle unavailable; playing stream directly."
+                                .to_string(),
                         ));
                     }
                 }
@@ -370,17 +373,27 @@ impl App {
                 .as_ref()
                 .map(|(p, s, se, ep)| (p.as_str(), s.as_str(), *se, *ep));
 
-            let needs_proxy = matches!(
-                kind,
-                crate::tui::state::PlayerKind::Vlc | crate::tui::state::PlayerKind::AndroidIntent
-            ) && headers.iter().any(|(name, _)| {
+            let is_dash = crate::player::is_dash_url(&link);
+            let has_extra_headers = headers.iter().any(|(name, _)| {
                 !name.eq_ignore_ascii_case("referer") && !name.eq_ignore_ascii_case("user-agent")
             });
+            let needs_proxy = is_dash
+                || (matches!(
+                    kind,
+                    crate::tui::state::PlayerKind::Vlc
+                        | crate::tui::state::PlayerKind::AndroidIntent
+                ) && has_extra_headers);
+            let sidecar_sub = if matches!(kind, crate::tui::state::PlayerKind::AndroidIntent) {
+                subtitle.as_deref()
+            } else {
+                None
+            };
 
+            let mut sidecar_child = None;
             let (effective_link, effective_subtitle) = if needs_proxy {
-                match crate::proxy::spawn_sidecar(&link, &headers, subtitle.as_deref(), max_height)
-                {
-                    Ok(local_url) => {
+                match crate::proxy::spawn_sidecar(&link, &headers, sidecar_sub, max_height) {
+                    Ok((local_url, sc_child)) => {
+                        sidecar_child = Some(sc_child);
                         let sub_url =
                             if matches!(kind, crate::tui::state::PlayerKind::AndroidIntent) {
                                 if local_subtitle.is_some() {
@@ -407,37 +420,56 @@ impl App {
                         (local_url, sub_url)
                     }
                     Err(err) => {
-                        log::error!("Failed to spawn stream proxy sidecar: {err}");
-                        let _ = sender.send(Action::PlayerExited);
-                        let _ = sender.send(Action::SetStatus(format!(
-                            "Stream proxy initialization failed: {err}"
-                        )));
-                        return;
+                        if matches!(
+                            kind,
+                            crate::tui::state::PlayerKind::Mpv
+                                | crate::tui::state::PlayerKind::Iina
+                        ) {
+                            log::warn!(
+                                "Failed to spawn stream proxy sidecar ({err}), falling back to direct playback"
+                            );
+                            (link.clone(), local_subtitle.clone())
+                        } else {
+                            log::error!("Failed to spawn stream proxy sidecar: {err}");
+                            let _ = sender.send(Action::PlayerExited);
+                            let _ = sender.send(Action::SetStatus(format!(
+                                "Error: Stream proxy initialization failed: {err}"
+                            )));
+                            return;
+                        }
                     }
                 }
             } else {
                 (link.clone(), local_subtitle.clone())
             };
 
+            let log_dir = std::env::temp_dir().join("moviebox-tui/subs");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let log_stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let log_path = log_dir.join(format!("player_{}_{log_stamp}.log", std::process::id()));
+
             let spawn_configured_command =
                 |mut cmd: std::process::Command, capture_stdout: bool| {
                     cmd.stdin(std::process::Stdio::null());
+                    let log_file = std::fs::File::create(&log_path).ok();
                     if capture_stdout {
-                        cmd.stdout(std::process::Stdio::piped());
+                        if let Some(cloned) = log_file.as_ref().and_then(|f| f.try_clone().ok()) {
+                            cmd.stdout(std::process::Stdio::from(cloned));
+                        } else {
+                            cmd.stdout(std::process::Stdio::null());
+                        }
                     } else {
                         cmd.stdout(std::process::Stdio::null());
                     }
-                    cmd.stderr(std::process::Stdio::piped());
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::process::CommandExt;
-                        cmd.process_group(0);
+                    if let Some(file) = log_file {
+                        cmd.stderr(std::process::Stdio::from(file));
+                    } else {
+                        cmd.stderr(std::process::Stdio::null());
                     }
-                    #[cfg(windows)]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        cmd.creation_flags(0x0000_0200);
-                    }
+                    crate::player::configure_detached_process(&mut cmd);
                     cmd.spawn()
                 };
             let is_android = matches!(kind, crate::tui::state::PlayerKind::AndroidIntent);
@@ -456,7 +488,8 @@ impl App {
                 && (!headers.is_empty() || subtitle.is_some())
             {
                 let _ = sender.send(Action::SetStatus(
-                    "IINA opened without iina-cli: headers and subtitles unavailable.".to_string(),
+                    "Warning: IINA opened without iina-cli: headers and subtitles unavailable."
+                        .to_string(),
                 ));
             }
 
@@ -498,45 +531,27 @@ impl App {
             match spawn_result {
                 Ok(mut child) => {
                     let start_time = std::time::Instant::now();
-                    let stderr_stream = child.stderr.take();
-                    let stdout_stream = child.stdout.take();
                     let fallback_link = effective_link.clone();
                     let fallback_sub = effective_subtitle.clone();
                     let fallback_headers = headers.clone();
                     tokio::task::spawn_blocking(move || {
-                        let mut error_output = String::new();
-                        let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<String>();
-                        if let Some(mut stderr) = stderr_stream {
-                            std::thread::spawn(move || {
-                                let mut buf = String::new();
-                                use std::io::Read;
-                                let _ = stderr.read_to_string(&mut buf);
-                                let _ = stderr_tx.send(buf);
-                            });
-                        } else {
-                            drop(stderr_tx);
-                        }
-
-                        if let Some(mut stdout) = stdout_stream {
-                            use std::io::Read;
-                            let _ = stdout.read_to_string(&mut error_output);
-                        }
-
                         let result = child.wait();
-                        let stderr_str = stderr_rx
-                            .recv_timeout(std::time::Duration::from_secs(2))
-                            .unwrap_or_default();
-                        if !stderr_str.is_empty() {
-                            if !error_output.is_empty() {
-                                error_output.push('\n');
-                            }
-                            error_output.push_str(&stderr_str);
-                        }
+                        let error_output = std::fs::read_to_string(&log_path).unwrap_or_default();
+                        let _ = std::fs::remove_file(&log_path);
 
-                        match result {
-                            Ok(status) if status.success() => {
+                        match &result {
+                            Ok(status)
+                                if status.success()
+                                    || is_vlc_normal_exit(
+                                        kind,
+                                        status.code(),
+                                        error_output.trim(),
+                                    )
+                                    || is_user_quit(status) =>
+                            {
                                 log::info!(
-                                    "player {kind:?} finished cleanly (duration: {}s)",
+                                    "player {kind:?} finished cleanly (code: {:?}, duration: {}s)",
+                                    status.code(),
                                     start_time.elapsed().as_secs()
                                 );
                                 let has_tracker = tracker_opts.is_some()
@@ -545,40 +560,6 @@ impl App {
                                 if has_tracker {
                                     sender.send(Action::ReconcileHistory).ok();
                                 } else if let Some(item) = history_item {
-                                    let elapsed = start_time.elapsed().as_secs();
-                                    if elapsed >= 30 {
-                                        let duration = item.duration_seconds;
-                                        let start_pos = resume_seconds.unwrap_or(0);
-                                        let total_pos = start_pos.saturating_add(elapsed);
-                                        let progress = if let Some(d) = duration {
-                                            total_pos.min(d)
-                                        } else {
-                                            total_pos
-                                        };
-                                        let completed = duration.is_some_and(|d| {
-                                            d > 0 && progress >= (d as f64 * 0.90) as u64
-                                        });
-                                        sender
-                                            .send(Action::UpdateProgress {
-                                                item: Box::new(item),
-                                                progress,
-                                                duration,
-                                                completed,
-                                            })
-                                            .ok();
-                                    }
-                                }
-                            }
-                            Ok(status)
-                                if is_vlc_normal_exit(kind, status.code(), error_output.trim())
-                                    || is_user_quit(&status) =>
-                            {
-                                log::info!(
-                                    "player {:?} exited cleanly (code: {:?})",
-                                    kind,
-                                    status.code()
-                                );
-                                if let Some(item) = history_item {
                                     let elapsed = start_time.elapsed().as_secs();
                                     if elapsed >= 30 {
                                         let duration = item.duration_seconds;
@@ -633,13 +614,11 @@ impl App {
                                                 &fallback_headers,
                                             );
                                         fallback_cmd.stdin(std::process::Stdio::null());
-                                        fallback_cmd.stdout(std::process::Stdio::piped());
-                                        fallback_cmd.stderr(std::process::Stdio::piped());
-                                        #[cfg(unix)]
-                                        {
-                                            use std::os::unix::process::CommandExt;
-                                            fallback_cmd.process_group(0);
-                                        }
+                                        fallback_cmd.stdout(std::process::Stdio::null());
+                                        fallback_cmd.stderr(std::process::Stdio::null());
+                                        crate::player::configure_detached_process(
+                                            &mut fallback_cmd,
+                                        );
                                         if let Ok(mut retry_child) = fallback_cmd.spawn() {
                                             if let Ok(retry_status) = retry_child.wait() {
                                                 if retry_status.success() {
@@ -679,8 +658,18 @@ impl App {
                                     .ok();
                             }
                         }
-
-                        if let Some(path) = temporary_subtitle {
+                        if !is_android
+                            && (matches!(kind, crate::tui::state::PlayerKind::Mpv)
+                                || start_time.elapsed() >= std::time::Duration::from_secs(3)
+                                || result.as_ref().is_ok_and(|s| !s.success()))
+                            && let Some(mut sc) = sidecar_child
+                        {
+                            let _ = sc.kill();
+                            let _ = sc.wait();
+                        }
+                        if start_time.elapsed() >= std::time::Duration::from_secs(3)
+                            && let Some(path) = temporary_subtitle
+                        {
                             let _ = std::fs::remove_file(path);
                         }
                         sender.send(Action::PlayerExited).ok();
@@ -692,6 +681,11 @@ impl App {
                         kind,
                         crate::logging::sanitize_url(&link)
                     );
+                    let _ = tokio::fs::remove_file(&log_path).await;
+                    if let Some(mut sc) = sidecar_child {
+                        let _ = sc.kill();
+                        let _ = sc.wait();
+                    }
                     if let Some(path) = temporary_subtitle {
                         let _ = tokio::fs::remove_file(path).await;
                     }
@@ -897,32 +891,11 @@ impl App {
                             .state
                             .selected_details
                             .as_ref()
-                            .map(|d| {
-                                let mut ids = vec![d.id.value.clone()];
-                                ids.extend(d.dubs.iter().map(|dub| dub.subject_id.clone()));
-                                ids.retain(|s| !s.is_empty());
-                                ids.sort();
-                                ids.dedup();
-                                ids
-                            })
+                            .map(|d| d.sibling_ids())
                             .unwrap_or_default();
                         let season = self.state.selected_season;
                         let episode = self.state.selected_episode;
                         tokio::spawn(async move {
-                            let cached = tokio::task::spawn_blocking({
-                                let subject_id = subject_id.clone();
-                                let rid = rid.clone();
-                                move || crate::cache::get_captions_cache_typed(&subject_id, &rid)
-                            })
-                            .await
-                            .ok()
-                            .flatten();
-                            if let Some(res) = cached {
-                                sender
-                                    .send(Action::ShowSubtitlePopup(source_clone.url.clone(), res))
-                                    .ok();
-                                return;
-                            }
                             let result = tokio::time::timeout(
                                 std::time::Duration::from_secs(15),
                                 service.get_ext_captions(
@@ -936,16 +909,6 @@ impl App {
                             .await;
                             match result {
                                 Ok(Ok(res)) => {
-                                    let subject_id = subject_id.clone();
-                                    let rid = rid.clone();
-                                    let res_for_cache = res.clone();
-                                    tokio::task::spawn_blocking(move || {
-                                        crate::cache::set_captions_cache_typed(
-                                            &subject_id,
-                                            &rid,
-                                            &res_for_cache,
-                                        );
-                                    });
                                     sender
                                         .send(Action::ShowSubtitlePopup(source_clone.url, res))
                                         .ok();

@@ -13,7 +13,81 @@ const MAX_HEADERS: usize = 64;
 const MAX_MANIFEST_BYTES: usize = 10 * 1024 * 1024;
 const CHUNK_IDLE_TIMEOUT_SECS: u64 = 60;
 const WATCHDOG_IDLE_SECS: u64 = 600;
+const DASH_RANGE_CHUNK_BYTES: usize = 95 * 1024;
+const MAX_CACHED_SEGMENTS: usize = 24;
+const MAX_SEGMENT_BYTES: usize = 16 * 1024 * 1024;
+const PREFETCH_LOOKAHEAD: u32 = 3;
 
+type CachedSegment = (String, String, Arc<[u8]>);
+type CachedManifest = (String, Arc<[u8]>);
+
+#[derive(Default)]
+struct SegmentCache {
+    completed: Mutex<std::collections::VecDeque<CachedSegment>>,
+    in_flight: Mutex<std::collections::HashMap<String, Arc<tokio::sync::Notify>>>,
+}
+
+impl SegmentCache {
+    fn get(&self, url: &str) -> Option<(String, Arc<[u8]>)> {
+        let lock = self.completed.lock().ok()?;
+        lock.iter()
+            .find(|(u, _, _)| u == url)
+            .map(|(_, ct, b)| (ct.clone(), b.clone()))
+    }
+
+    fn contains_or_in_flight(&self, url: &str) -> bool {
+        if let Ok(lock) = self.completed.lock() {
+            if lock.iter().any(|(u, _, _)| u == url) {
+                return true;
+            }
+        }
+        if let Ok(lock) = self.in_flight.lock() {
+            if lock.contains_key(url) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn insert(&self, url: String, content_type: String, data: Arc<[u8]>) {
+        if let Ok(mut lock) = self.completed.lock() {
+            if lock.iter().any(|(u, _, _)| u == &url) {
+                return;
+            }
+            if lock.len() >= MAX_CACHED_SEGMENTS {
+                lock.pop_front();
+            }
+            lock.push_back((url, content_type, data));
+        }
+    }
+}
+
+struct InFlightGuard {
+    cache: Arc<SegmentCache>,
+    url: String,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut lock) = self.cache.in_flight.lock() {
+            lock.remove(&self.url);
+        }
+        self.notify.notify_waiters();
+    }
+}
+
+#[derive(Clone)]
+struct ProxyContext {
+    proxy_port: u16,
+    client: reqwest::Client,
+    auth_headers: Arc<Vec<(String, String)>>,
+    target_host: Option<String>,
+    subtitle_url: Option<String>,
+    max_height: Option<u64>,
+    segment_cache: Arc<SegmentCache>,
+    manifest_cache: Arc<Mutex<Option<CachedManifest>>>,
+}
 struct ConnectionGuard {
     conns: Arc<AtomicUsize>,
     activity: Arc<Mutex<Instant>>,
@@ -33,7 +107,7 @@ pub fn spawn_sidecar(
     headers: &[(String, String)],
     subtitle_url: Option<&str>,
     max_height: Option<u64>,
-) -> Result<String, String> {
+) -> Result<(String, std::process::Child), String> {
     let exe = std::env::current_exe()
         .ok()
         .or_else(|| std::env::args().next().map(PathBuf::from))
@@ -54,19 +128,7 @@ pub fn spawn_sidecar(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-    }
+    crate::player::configure_detached_process(&mut cmd);
 
     let mut child = cmd
         .spawn()
@@ -100,7 +162,6 @@ pub fn spawn_sidecar(
             let _ = child.wait();
             format!("proxy sidecar returned unexpected output: {line:?}")
         })?;
-    std::mem::forget(child);
 
     let proxy_path = if let Some(rest) = target_url.strip_prefix("https://") {
         format!("/https/{rest}")
@@ -110,7 +171,7 @@ pub fn spawn_sidecar(
         format!("/https/{target_url}")
     };
 
-    Ok(format!("http://127.0.0.1:{port}{proxy_path}"))
+    Ok((format!("http://127.0.0.1:{port}{proxy_path}"), child))
 }
 
 pub async fn run_sidecar(
@@ -119,7 +180,9 @@ pub async fn run_sidecar(
     subtitle_url: Option<String>,
     max_height: Option<u64>,
 ) {
-    let client = crate::net::streaming_client_builder()
+    let client = crate::net::http_client_builder_base()
+        .http1_only()
+        .pool_max_idle_per_host(16)
         .connect_timeout(Duration::from_secs(15))
         .build()
         .unwrap_or_default();
@@ -157,8 +220,24 @@ pub async fn run_sidecar(
         }
     });
 
-    let target_host = extract_host_authority(&target_url);
+    let ctx = ProxyContext {
+        proxy_port: port,
+        client,
+        auth_headers: Arc::new(headers),
+        target_host: extract_host_authority(&target_url),
+        subtitle_url,
+        max_height,
+        segment_cache: Arc::new(SegmentCache::default()),
+        manifest_cache: Arc::new(Mutex::new(None)),
+    };
 
+    if crate::player::is_dash_url(&target_url) {
+        let warm_ctx = ctx.clone();
+        let warm_url = target_url.clone();
+        tokio::spawn(async move {
+            warmup_dash_sidecar(&warm_ctx, &warm_url).await;
+        });
+    }
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(conn) => {
@@ -171,9 +250,7 @@ pub async fn run_sidecar(
                 continue;
             }
         };
-        let client = client.clone();
-        let headers = headers.clone();
-        let target_host = target_host.clone();
+        let conn_ctx = ctx.clone();
         let active_conns = Arc::clone(&active_connections);
         let activity = Arc::clone(&last_activity);
 
@@ -184,22 +261,12 @@ pub async fn run_sidecar(
             }
         }
 
-        let sub_opt = subtitle_url.clone();
         tokio::spawn(async move {
             let _guard = ConnectionGuard {
                 conns: active_conns,
                 activity,
             };
-            let _ = handle_connection(
-                stream,
-                port,
-                &client,
-                &headers,
-                target_host.as_deref(),
-                sub_opt.as_deref(),
-                max_height,
-            )
-            .await;
+            let _ = handle_connection(stream, &conn_ctx).await;
         });
     }
 }
@@ -218,13 +285,14 @@ fn extract_host_authority(url: &str) -> Option<String> {
 
 async fn handle_connection(
     stream: TcpStream,
-    proxy_port: u16,
-    client: &reqwest::Client,
-    auth_headers: &[(String, String)],
-    target_host: Option<&str>,
-    subtitle_url: Option<&str>,
-    max_height: Option<u64>,
+    ctx: &ProxyContext,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let proxy_port = ctx.proxy_port;
+    let client = &ctx.client;
+    let auth_headers = ctx.auth_headers.as_slice();
+    let target_host = ctx.target_host.as_deref();
+    let subtitle_url = ctx.subtitle_url.as_deref();
+    let max_height = ctx.max_height;
     let (reader, writer) = stream.into_split();
     let mut buf_reader = BufReader::new(reader);
     let mut writer = tokio::io::BufWriter::with_capacity(128 * 1024, writer);
@@ -303,12 +371,111 @@ async fn handle_connection(
             return Ok(());
         }
 
+        let forward_all_headers = extracted_host.as_deref() == target_host;
+
+        if method == "GET" && crate::player::is_dash_url(&target_url) {
+            let cached_mpd = ctx.manifest_cache.lock().ok().and_then(|g| {
+                g.as_ref()
+                    .filter(|(u, _)| u == &target_url)
+                    .map(|(_, b)| Arc::clone(b))
+            });
+            if let Some(rewritten_bytes) = cached_mpd {
+                let conn_header = if client_close {
+                    "Connection: close\r\n"
+                } else {
+                    "Connection: keep-alive\r\n"
+                };
+                let headers_out = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/dash+xml\r\nContent-Length: {}\r\n{conn_header}\r\n",
+                    rewritten_bytes.len()
+                );
+                writer.write_all(headers_out.as_bytes()).await?;
+                writer.write_all(&rewritten_bytes).await?;
+                writer.flush().await?;
+                if client_close {
+                    return Ok(());
+                }
+                continue;
+            }
+        }
+
+        if method == "GET" && is_m4s_segment(&target_url) {
+            for next_url in next_dash_segment_urls(&target_url, PREFETCH_LOOKAHEAD) {
+                if !ctx.segment_cache.contains_or_in_flight(&next_url) {
+                    let cache_clone = Arc::clone(&ctx.segment_cache);
+                    let client_clone = client.clone();
+                    let headers_clone = Arc::clone(&ctx.auth_headers);
+                    tokio::spawn(async move {
+                        let _ = fetch_or_get_segment(
+                            &cache_clone,
+                            &client_clone,
+                            &next_url,
+                            &headers_clone,
+                            forward_all_headers,
+                        )
+                        .await;
+                    });
+                }
+            }
+
+            match fetch_or_get_segment(
+                &ctx.segment_cache,
+                client,
+                &target_url,
+                auth_headers,
+                forward_all_headers,
+            )
+            .await
+            {
+                Ok((seg_status, content_type, seg_bytes)) => {
+                    let conn_hdr = if client_close { "close" } else { "keep-alive" };
+                    let total = seg_bytes.len();
+                    let parsed_range = range_header
+                        .as_deref()
+                        .and_then(|r| parse_byte_range_request(r, total));
+                    let (out_status, content_range_hdr, body_slice) = if seg_status.is_success()
+                        && let Some((start, end)) = parsed_range
+                    {
+                        (
+                            reqwest::StatusCode::PARTIAL_CONTENT,
+                            format!("Content-Range: bytes {start}-{end}/{total}\r\n"),
+                            &seg_bytes[start..=end],
+                        )
+                    } else {
+                        (seg_status, String::new(), seg_bytes.as_ref())
+                    };
+                    let response_hdr = format!(
+                        "HTTP/1.1 {} {}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{content_range_hdr}Accept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nConnection: {conn_hdr}\r\n\r\n",
+                        out_status.as_u16(),
+                        out_status.canonical_reason().unwrap_or("OK"),
+                        body_slice.len()
+                    );
+                    writer.write_all(response_hdr.as_bytes()).await?;
+                    writer.write_all(body_slice).await?;
+                    writer.flush().await?;
+                    if client_close {
+                        return Ok(());
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    let body = format!("Gateway Error: {e}");
+                    let response = format!(
+                        "HTTP/1.1 502 Bad Gateway\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    writer.write_all(response.as_bytes()).await?;
+                    writer.flush().await?;
+                    return Ok(());
+                }
+            }
+        }
+
         let mut req = match method {
             "HEAD" => client.head(&target_url),
             _ => client.get(&target_url),
         };
 
-        let forward_all_headers = extracted_host.as_deref() == target_host;
         for (name, val) in auth_headers {
             if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
                 req = req.header(name.as_str(), val.as_str());
@@ -317,7 +484,6 @@ async fn handle_connection(
         if let Some(range) = range_header {
             req = req.header("Range", range);
         }
-
         let upstream_res = match req.send().await {
             Ok(res) => res,
             Err(e) => {
@@ -340,7 +506,7 @@ async fn handle_connection(
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok());
 
-        let is_dash_manifest = target_url.ends_with(".mpd")
+        let is_dash_manifest = crate::player::is_dash_url(&target_url)
             || upstream_res
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
@@ -375,6 +541,9 @@ async fn handle_connection(
                 max_height,
             );
             let rewritten_bytes = rewritten.as_bytes();
+            if let Ok(mut lock) = ctx.manifest_cache.lock() {
+                *lock = Some((target_url.clone(), Arc::from(rewritten_bytes)));
+            }
 
             let conn_header = if client_close {
                 "Connection: close\r\n"
@@ -425,6 +594,299 @@ async fn handle_connection(
             return Ok(());
         }
     }
+}
+
+fn is_m4s_segment(url: &str) -> bool {
+    let clean = url
+        .split('?')
+        .next()
+        .unwrap_or("")
+        .split('#')
+        .next()
+        .unwrap_or("");
+    clean.to_ascii_lowercase().ends_with(".m4s")
+}
+
+async fn warmup_dash_sidecar(ctx: &ProxyContext, mpd_url: &str) {
+    let mut req = ctx.client.get(mpd_url);
+    for (name, val) in ctx.auth_headers.iter() {
+        req = req.header(name.as_str(), val.as_str());
+    }
+    let Ok(res) = req.send().await else {
+        return;
+    };
+    if !res.status().is_success() {
+        return;
+    }
+    let Ok(manifest_bytes) = res.bytes().await else {
+        return;
+    };
+    if manifest_bytes.len() > MAX_MANIFEST_BYTES {
+        return;
+    }
+    let manifest_str = String::from_utf8_lossy(&manifest_bytes);
+    let rewritten = rewrite_dash_manifest(
+        &manifest_str,
+        ctx.proxy_port,
+        ctx.target_host.as_deref(),
+        ctx.subtitle_url.as_deref(),
+        ctx.max_height,
+    );
+    if let Ok(mut lock) = ctx.manifest_cache.lock() {
+        *lock = Some((mpd_url.to_string(), Arc::from(rewritten.as_bytes())));
+    }
+    let Some((base_dir, _)) = mpd_url.rsplit_once('/') else {
+        return;
+    };
+    let vid_id = if rewritten.contains("id=\"0\"") {
+        "0"
+    } else if rewritten.contains("id=\"1\"") {
+        "1"
+    } else {
+        "2"
+    };
+    for rel in [
+        format!("init-stream{vid_id}.m4s"),
+        "init-stream3.m4s".to_string(),
+        format!("chunk-stream{vid_id}-00001.m4s"),
+        "chunk-stream3-00001.m4s".to_string(),
+    ] {
+        let seg_url = format!("{base_dir}/{rel}");
+        if !ctx.segment_cache.contains_or_in_flight(&seg_url) {
+            let cache_clone = Arc::clone(&ctx.segment_cache);
+            let client_clone = ctx.client.clone();
+            let headers_clone = Arc::clone(&ctx.auth_headers);
+            tokio::spawn(async move {
+                let _ = fetch_or_get_segment(
+                    &cache_clone,
+                    &client_clone,
+                    &seg_url,
+                    &headers_clone,
+                    true,
+                )
+                .await;
+            });
+        }
+    }
+}
+
+fn next_dash_segment_urls(url: &str, count: u32) -> Vec<String> {
+    let (base, query_suffix) = match url.find('?') {
+        Some(idx) => (&url[..idx], &url[idx..]),
+        None => (url, ""),
+    };
+    if !base.to_ascii_lowercase().ends_with(".m4s") {
+        return Vec::new();
+    }
+    let without_ext = &base[..base.len() - 4];
+    let file_stem = without_ext.rsplit('/').next().unwrap_or(without_ext);
+    if let Some(init_id) = file_stem.strip_prefix("init-stream") {
+        let dir_prefix = &without_ext[..without_ext.len() - file_stem.len()];
+        return if init_id == "3" {
+            vec![format!("{dir_prefix}init-stream0.m4s{query_suffix}")]
+        } else {
+            vec![format!("{dir_prefix}init-stream3.m4s{query_suffix}")]
+        };
+    }
+    if file_stem.to_ascii_lowercase().starts_with("init") {
+        return Vec::new();
+    }
+    let digit_count = without_ext
+        .bytes()
+        .rev()
+        .take_while(|b| b.is_ascii_digit())
+        .count();
+    if digit_count == 0 || digit_count > 9 {
+        return Vec::new();
+    }
+    let split_pos = without_ext.len() - digit_count;
+    let prefix = &without_ext[..split_pos];
+    if !prefix.ends_with(['-', '_', '/']) {
+        return Vec::new();
+    }
+    let digits = &without_ext[split_pos..];
+    let Ok(num) = digits.parse::<u64>() else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = (1..=u64::from(count))
+        .map(|step| {
+            let next_num = num + step;
+            format!("{prefix}{next_num:0digit_count$}.m4s{query_suffix}")
+        })
+        .collect();
+
+    for vid_tag in ["chunk-stream0-", "chunk-stream1-", "chunk-stream2-"] {
+        if let Some(dir_prefix) = prefix.strip_suffix(vid_tag) {
+            out.push(format!(
+                "{dir_prefix}chunk-stream3-{num:0digit_count$}.m4s{query_suffix}"
+            ));
+            let next_num = num + 1;
+            out.push(format!(
+                "{dir_prefix}chunk-stream3-{next_num:0digit_count$}.m4s{query_suffix}"
+            ));
+            break;
+        }
+    }
+    out
+}
+
+fn parse_content_range_total(header_val: &str) -> Option<usize> {
+    let (_, total_str) = header_val.trim().split_once('/')?;
+    total_str.trim().parse::<usize>().ok()
+}
+
+fn parse_byte_range_request(header_val: &str, total: usize) -> Option<(usize, usize)> {
+    if total == 0 {
+        return None;
+    }
+    let spec = header_val.trim().strip_prefix("bytes=")?;
+    let (start_str, end_str) = spec.split_once('-')?;
+    let start = start_str.trim().parse::<usize>().ok()?;
+    if start >= total {
+        return None;
+    }
+    let end = if end_str.trim().is_empty() {
+        total - 1
+    } else {
+        end_str.trim().parse::<usize>().ok()?.min(total - 1)
+    };
+    if start <= end {
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
+async fn fetch_or_get_segment(
+    cache: &Arc<SegmentCache>,
+    client: &reqwest::Client,
+    url: &str,
+    auth_headers: &[(String, String)],
+    forward_all_headers: bool,
+) -> Result<(reqwest::StatusCode, String, Arc<[u8]>), reqwest::Error> {
+    if let Some((ct, data)) = cache.get(url) {
+        return Ok((reqwest::StatusCode::OK, ct, data));
+    }
+
+    let (is_owner, notify) = {
+        let mut lock = cache.in_flight.lock().unwrap();
+        if let Some(existing) = lock.get(url) {
+            (false, Arc::clone(existing))
+        } else {
+            let n = Arc::new(tokio::sync::Notify::new());
+            lock.insert(url.to_string(), Arc::clone(&n));
+            (true, n)
+        }
+    };
+
+    if !is_owner {
+        let _ = tokio::time::timeout(Duration::from_secs(15), notify.notified()).await;
+        if let Some((ct, data)) = cache.get(url) {
+            return Ok((reqwest::StatusCode::OK, ct, data));
+        }
+    }
+
+    let _guard = if is_owner {
+        Some(InFlightGuard {
+            cache: Arc::clone(cache),
+            url: url.to_string(),
+            notify,
+        })
+    } else {
+        None
+    };
+
+    let (status, content_type, data) =
+        fetch_m4s_chunked(client, url, auth_headers, forward_all_headers).await?;
+    if status.is_success() && !data.is_empty() && data.len() <= MAX_SEGMENT_BYTES {
+        cache.insert(url.to_string(), content_type.clone(), Arc::clone(&data));
+    }
+    Ok((status, content_type, data))
+}
+
+async fn fetch_m4s_chunked(
+    client: &reqwest::Client,
+    url: &str,
+    auth_headers: &[(String, String)],
+    forward_all_headers: bool,
+) -> Result<(reqwest::StatusCode, String, Arc<[u8]>), reqwest::Error> {
+    let first_end = DASH_RANGE_CHUNK_BYTES - 1;
+    let mut req = client
+        .get(url)
+        .header("Range", format!("bytes=0-{first_end}"));
+    for (name, val) in auth_headers {
+        if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
+            req = req.header(name.as_str(), val.as_str());
+        }
+    }
+
+    let res = req.send().await?;
+    let status = res.status();
+    let content_type = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    if !status.is_success() {
+        let body = res.bytes().await.unwrap_or_default();
+        return Ok((status, content_type, Arc::from(body.as_ref())));
+    }
+
+    if status == reqwest::StatusCode::OK {
+        let body = res.bytes().await?;
+        return Ok((
+            reqwest::StatusCode::OK,
+            content_type,
+            Arc::from(body.as_ref()),
+        ));
+    }
+
+    let total_opt = res
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_content_range_total);
+    let first_chunk = res.bytes().await?;
+
+    let Some(total) = total_opt.filter(|&t| t > first_chunk.len() && t <= MAX_SEGMENT_BYTES) else {
+        return Ok((
+            reqwest::StatusCode::OK,
+            content_type,
+            Arc::from(first_chunk.as_ref()),
+        ));
+    };
+
+    let mut ranges = Vec::new();
+    let mut pos = first_chunk.len();
+    while pos < total {
+        let end = (pos + DASH_RANGE_CHUNK_BYTES - 1).min(total - 1);
+        ranges.push((pos, end));
+        pos = end + 1;
+    }
+
+    let chunk_futs = ranges.into_iter().map(|(start, end)| async move {
+        let mut sub_req = client
+            .get(url)
+            .header("Range", format!("bytes={start}-{end}"));
+        for (name, val) in auth_headers {
+            if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
+                sub_req = sub_req.header(name.as_str(), val.as_str());
+            }
+        }
+        let sub_res = sub_req.send().await?.error_for_status()?;
+        sub_res.bytes().await
+    });
+
+    let remaining_chunks = futures::future::try_join_all(chunk_futs).await?;
+    let mut assembled = Vec::with_capacity(total);
+    assembled.extend_from_slice(&first_chunk);
+    for chunk in remaining_chunks {
+        assembled.extend_from_slice(&chunk);
+    }
+
+    Ok((reqwest::StatusCode::OK, content_type, Arc::from(assembled)))
 }
 fn format_proxy_response_headers(
     headers: &reqwest::header::HeaderMap,
@@ -843,5 +1305,110 @@ mod tests {
         assert!(!filtered_480.contains("height=\"1080\""));
         assert!(!filtered_480.contains("height=\"720\""));
         assert!(filtered_480.contains("height=\"480\""));
+    }
+
+    #[test]
+    fn test_next_dash_segment_urls_preserves_zero_padding_and_prefetches_audio() {
+        let next = next_dash_segment_urls(
+            "https://sbcdn3.hakunaymatata.com/dash/123/chunk-stream0-00721.m4s?token=abc",
+            3,
+        );
+        assert_eq!(
+            next,
+            vec![
+                "https://sbcdn3.hakunaymatata.com/dash/123/chunk-stream0-00722.m4s?token=abc",
+                "https://sbcdn3.hakunaymatata.com/dash/123/chunk-stream0-00723.m4s?token=abc",
+                "https://sbcdn3.hakunaymatata.com/dash/123/chunk-stream0-00724.m4s?token=abc",
+                "https://sbcdn3.hakunaymatata.com/dash/123/chunk-stream3-00721.m4s?token=abc",
+                "https://sbcdn3.hakunaymatata.com/dash/123/chunk-stream3-00722.m4s?token=abc",
+            ]
+        );
+        assert_eq!(
+            next_dash_segment_urls(
+                "https://sbcdn3.hakunaymatata.com/dash/123/init-stream0.m4s",
+                3
+            ),
+            vec!["https://sbcdn3.hakunaymatata.com/dash/123/init-stream3.m4s"]
+        );
+        assert!(
+            next_dash_segment_urls("https://sbcdn3.hakunaymatata.com/dash/123/init.m4s", 3)
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_m4s_chunked_splits_ranges_and_caches() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let total_size = 240 * 1024;
+        let payload: Arc<Vec<u8>> = Arc::new((0..total_size).map(|i| (i % 253) as u8).collect());
+        let request_count = Arc::new(AtomicUsize::new(0));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}/dash/chunk-stream0-00001.m4s");
+
+        let srv_payload = Arc::clone(&payload);
+        let srv_reqs = Arc::clone(&request_count);
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let data = Arc::clone(&srv_payload);
+                let reqs = Arc::clone(&srv_reqs);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let Ok(n) = socket.read(&mut buf).await else {
+                        return;
+                    };
+                    reqs.fetch_add(1, Ordering::Relaxed);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let mut range_val = None;
+                    for line in req.lines() {
+                        if let Some(v) = line
+                            .strip_prefix("Range: bytes=")
+                            .or_else(|| line.strip_prefix("range: bytes="))
+                        {
+                            range_val = Some(v.trim().to_string());
+                        }
+                    }
+                    let total = data.len();
+                    let (start, end) = range_val
+                        .and_then(|r| {
+                            let (s, e) = r.split_once('-')?;
+                            Some((
+                                s.parse::<usize>().ok()?,
+                                e.parse::<usize>().ok()?.min(total - 1),
+                            ))
+                        })
+                        .unwrap_or((0, total - 1));
+                    let slice = &data[start..=end];
+                    let hdr = format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Type: video/iso.segment\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        slice.len()
+                    );
+                    let _ = socket.write_all(hdr.as_bytes()).await;
+                    let _ = socket.write_all(slice).await;
+                });
+            }
+        });
+
+        let client = crate::net::http_client_builder_base().build().unwrap();
+        let cache = Arc::new(SegmentCache::default());
+        let (status, ct, assembled) = fetch_or_get_segment(&cache, &client, &url, &[], true)
+            .await
+            .unwrap();
+        assert_eq!(status, reqwest::StatusCode::OK);
+        assert_eq!(ct, "video/iso.segment");
+        assert_eq!(assembled.as_ref(), payload.as_slice());
+        assert_eq!(request_count.load(Ordering::Relaxed), 3);
+
+        let (_, _, cached) = fetch_or_get_segment(&cache, &client, &url, &[], true)
+            .await
+            .unwrap();
+        assert_eq!(cached.as_ref(), payload.as_slice());
+        assert_eq!(request_count.load(Ordering::Relaxed), 3);
+        server.abort();
     }
 }

@@ -1,4 +1,4 @@
-use super::{App, network};
+use super::App;
 use crate::models::{Episode, MediaType, ProviderKind, Season};
 use crate::tui::{
     action::Action,
@@ -608,42 +608,14 @@ impl App {
                             let cover_url = channel.logo.clone();
                             if !cover_url.is_empty() {
                                 let tx = self.action_sender.clone();
-                                let client = self.service.http_client().clone();
+                                let service = self.service.clone();
                                 let id2 = id.clone();
                                 tokio::spawn(async move {
-                                    if let Ok(Some(bytes)) = tokio::task::spawn_blocking({
-                                        let id_clone = id2.clone();
-                                        move || {
-                                            crate::cache::get_namespaced_image_cache(
-                                                "iptv", &id_clone,
-                                            )
-                                        }
-                                    })
-                                    .await
+                                    if let Some(img) = service
+                                        .fetch_and_decode_cached_poster("iptv", &id2, &cover_url)
+                                        .await
                                     {
-                                        if let Some(img) = network::decode_poster(bytes).await {
-                                            tx.send(Action::SearchPosterLoaded(id2, Some(img)))
-                                                .ok();
-                                            return;
-                                        }
-                                    }
-                                    if let Some(bytes) =
-                                        network::fetch_poster_bytes(&client, &cover_url).await
-                                    {
-                                        let bytes_clone = bytes.clone();
-                                        let id_clone = id2.clone();
-                                        let _ = tokio::task::spawn_blocking(move || {
-                                            crate::cache::set_namespaced_image_cache(
-                                                "iptv",
-                                                &id_clone,
-                                                &bytes_clone,
-                                            )
-                                        })
-                                        .await;
-                                        if let Some(img) = network::decode_poster(bytes).await {
-                                            tx.send(Action::SearchPosterLoaded(id2, Some(img)))
-                                                .ok();
-                                        }
+                                        tx.send(Action::SearchPosterLoaded(id2, Some(img))).ok();
                                     }
                                 });
                             }
@@ -676,38 +648,13 @@ impl App {
                         let url = url.to_string();
                         let tx = self.action_sender.clone();
                         let id2 = id.clone();
-                        let client = self.service.http_client().clone();
+                        let service = self.service.clone();
                         tokio::spawn(async move {
-                            if let Ok(Some(bytes)) = tokio::task::spawn_blocking({
-                                let id_clone = id2.clone();
-                                move || {
-                                    crate::cache::get_namespaced_image_cache(
-                                        prov.cache_key(),
-                                        &id_clone,
-                                    )
-                                }
-                            })
-                            .await
+                            if let Some(img) = service
+                                .fetch_and_decode_cached_poster(prov.cache_key(), &id2, &url)
+                                .await
                             {
-                                if let Some(img) = network::decode_poster(bytes).await {
-                                    tx.send(Action::PosterSuccess(id2, img)).ok();
-                                    return;
-                                }
-                            }
-                            if let Some(bytes) = network::fetch_poster_bytes(&client, &url).await {
-                                let bytes_clone = bytes.clone();
-                                let id_clone = id2.clone();
-                                let _ = tokio::task::spawn_blocking(move || {
-                                    crate::cache::set_namespaced_image_cache(
-                                        prov.cache_key(),
-                                        &id_clone,
-                                        &bytes_clone,
-                                    )
-                                })
-                                .await;
-                                if let Some(img) = network::decode_poster(bytes).await {
-                                    tx.send(Action::PosterSuccess(id2, img)).ok();
-                                }
+                                tx.send(Action::PosterSuccess(id2, img)).ok();
                             }
                         });
                     }
@@ -798,35 +745,13 @@ impl App {
                     let url_clone = url.to_string();
                     let action_tx = self.action_sender.clone();
                     let id_clone = id.clone();
-                    let http_client = self.service.http_client().clone();
+                    let service = self.service.clone();
                     tokio::spawn(async move {
-                        if let Ok(Some(bytes)) = tokio::task::spawn_blocking({
-                            let id_clone = id_clone.clone();
-                            move || crate::cache::get_namespaced_image_cache("posters", &id_clone)
-                        })
-                        .await
+                        if let Some(img) = service
+                            .fetch_and_decode_cached_poster("posters", &id_clone, &url_clone)
+                            .await
                         {
-                            if let Some(img) = network::decode_poster(bytes).await {
-                                let _ = action_tx.send(Action::PosterSuccess(id_clone, img));
-                                return;
-                            }
-                        }
-                        if let Some(bytes) =
-                            network::fetch_poster_bytes(&http_client, &url_clone).await
-                        {
-                            let bytes_clone = bytes.clone();
-                            let id_clone2 = id_clone.clone();
-                            let _ = tokio::task::spawn_blocking(move || {
-                                crate::cache::set_namespaced_image_cache(
-                                    "posters",
-                                    &id_clone2,
-                                    &bytes_clone,
-                                )
-                            })
-                            .await;
-                            if let Some(img) = network::decode_poster(bytes).await {
-                                let _ = action_tx.send(Action::PosterSuccess(id_clone, img));
-                            }
+                            let _ = action_tx.send(Action::PosterSuccess(id_clone, img));
                         }
                     });
                 }
@@ -988,41 +913,15 @@ impl App {
                             let url_clone = url.to_string();
                             let action_tx = self.action_sender.clone();
                             let id_clone = id.clone();
-                            let http_client = self.service.http_client().clone();
+                            let service = self.service.clone();
                             tokio::spawn(async move {
-                                if let Ok(Some(bytes)) = tokio::task::spawn_blocking({
-                                    let id_clone = id_clone.clone();
-                                    move || {
-                                        crate::cache::get_namespaced_image_cache(
-                                            "posters", &id_clone,
-                                        )
-                                    }
-                                })
-                                .await
+                                if let Some(img) = service
+                                    .fetch_and_decode_cached_poster(
+                                        "posters", &id_clone, &url_clone,
+                                    )
+                                    .await
                                 {
-                                    if let Some(img) = network::decode_poster(bytes).await {
-                                        let _ =
-                                            action_tx.send(Action::PosterSuccess(id_clone, img));
-                                        return;
-                                    }
-                                }
-                                if let Some(bytes) =
-                                    network::fetch_poster_bytes(&http_client, &url_clone).await
-                                {
-                                    let bytes_clone = bytes.clone();
-                                    let id_clone2 = id_clone.clone();
-                                    let _ = tokio::task::spawn_blocking(move || {
-                                        crate::cache::set_namespaced_image_cache(
-                                            "posters",
-                                            &id_clone2,
-                                            &bytes_clone,
-                                        );
-                                    })
-                                    .await;
-                                    if let Some(img) = network::decode_poster(bytes).await {
-                                        let _ =
-                                            action_tx.send(Action::PosterSuccess(id_clone, img));
-                                    }
+                                    let _ = action_tx.send(Action::PosterSuccess(id_clone, img));
                                 }
                             });
                         }
@@ -1225,16 +1124,16 @@ impl App {
                                     let url_clone = url.to_string();
                                     let action_tx = self.action_sender.clone();
                                     let id_clone = id.clone();
-                                    let http_client = self.service.http_client().clone();
+                                    let service = self.service.clone();
                                     tokio::spawn(async move {
-                                        if let Some(bytes) =
-                                            network::fetch_poster_bytes(&http_client, &url_clone)
-                                                .await
+                                        if let Some(img) = service
+                                            .fetch_and_decode_cached_poster(
+                                                "posters", &id_clone, &url_clone,
+                                            )
+                                            .await
                                         {
-                                            if let Some(img) = network::decode_poster(bytes).await {
-                                                let _ = action_tx
-                                                    .send(Action::PosterSuccess(id_clone, img));
-                                            }
+                                            let _ = action_tx
+                                                .send(Action::PosterSuccess(id_clone, img));
                                         }
                                     });
                                 }
@@ -1420,7 +1319,7 @@ impl App {
                         if !blocked_addons.is_empty() {
                             sender
                                 .send(Action::SetStatus(format!(
-                                    "Blocked {} torrent streams. HTTP only.",
+                                    "Warning: Blocked {} torrent streams. HTTP only.",
                                     blocked_addons.join(", ")
                                 )))
                                 .ok();
@@ -1595,10 +1494,6 @@ impl App {
                 let id_clone = subject_id.clone();
 
                 self.request_tasks.spawn_streams(async move {
-                    sender
-                        .send(Action::SetStatus("Fetching streams...".to_string()))
-                        .ok();
-
                     match crate::providers::ReleaseProvider::episode_streams(
                         &client, &id_clone, season, episode,
                     )
@@ -1798,49 +1693,14 @@ impl App {
                             .state
                             .selected_details
                             .as_ref()
-                            .map(|d| {
-                                let mut ids = vec![d.id.value.clone()];
-                                ids.extend(d.dubs.iter().map(|dub| dub.subject_id.clone()));
-                                ids.retain(|s| !s.is_empty());
-                                ids.sort();
-                                ids.dedup();
-                                ids
-                            })
+                            .map(|d| d.sibling_ids())
                             .unwrap_or_default();
                         let season = self.state.selected_season;
                         let episode = self.state.selected_episode;
                         tokio::spawn(async move {
-                            let already_cached = tokio::task::spawn_blocking({
-                                let subject_id = subject_id.clone();
-                                let rid = rid.clone();
-                                move || {
-                                    crate::cache::get_captions_cache_typed(&subject_id, &rid)
-                                        .is_some()
-                                }
-                            })
-                            .await
-                            .unwrap_or(false);
-
-                            if !already_cached {
-                                if let Ok(res) = service
-                                    .get_ext_captions(
-                                        &subject_id,
-                                        &rid,
-                                        &sibling_ids,
-                                        season,
-                                        episode,
-                                    )
-                                    .await
-                                {
-                                    tokio::task::spawn_blocking(move || {
-                                        crate::cache::set_captions_cache_typed(
-                                            &subject_id,
-                                            &rid,
-                                            &res,
-                                        );
-                                    });
-                                }
-                            }
+                            let _ = service
+                                .get_ext_captions(&subject_id, &rid, &sibling_ids, season, episode)
+                                .await;
                         });
                     }
                 }

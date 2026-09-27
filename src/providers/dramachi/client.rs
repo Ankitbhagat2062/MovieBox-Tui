@@ -502,8 +502,9 @@ impl DramachiClient {
                     match self.fetch_file_stream(&ep_fid, &ep_disk).await {
                         Ok((stream_url, filename)) => {
                             let quality = ep_quality.filter(|q| !q.is_empty());
-                            let size_bytes =
-                                parse_size_to_bytes(ep_size.as_deref().unwrap_or_default());
+                            let size_bytes = crate::providers::models::parse_size_bytes(
+                                ep_size.as_deref().unwrap_or_default(),
+                            );
 
                             Some(Release {
                                 provider: ProviderKind::Dramachi,
@@ -590,30 +591,6 @@ fn clean_episode_title(f_title: &str) -> String {
     }
     title.to_string()
 }
-fn parse_size_to_bytes(size_str: &str) -> Option<u64> {
-    let trimmed = size_str.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let number = parts[0].parse::<f64>().ok()?;
-    let unit = parts
-        .get(1)
-        .map(|s| s.to_ascii_uppercase())
-        .unwrap_or_else(|| "MB".to_string());
-
-    let bytes = match unit.as_str() {
-        "GB" | "GIB" => number * 1024.0 * 1024.0 * 1024.0,
-        "MB" | "MIB" => number * 1024.0 * 1024.0,
-        "KB" | "KIB" => number * 1024.0,
-        _ => number,
-    };
-
-    Some(bytes as u64)
-}
 
 #[cfg(test)]
 mod tests {
@@ -638,8 +615,14 @@ mod tests {
 
     #[test]
     fn test_parse_size_to_bytes() {
-        assert_eq!(parse_size_to_bytes("218.32 MB"), Some(228925112));
-        assert_eq!(parse_size_to_bytes("1.5 GB"), Some(1610612736));
-        assert_eq!(parse_size_to_bytes(""), None);
+        assert_eq!(
+            crate::providers::models::parse_size_bytes("218.32 MB"),
+            Some(228925112)
+        );
+        assert_eq!(
+            crate::providers::models::parse_size_bytes("1.5 GB"),
+            Some(1610612736)
+        );
+        assert_eq!(crate::providers::models::parse_size_bytes(""), None);
     }
 }

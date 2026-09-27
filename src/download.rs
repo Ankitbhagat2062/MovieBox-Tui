@@ -54,6 +54,29 @@ pub fn safe_file_stem(value: &str) -> String {
     stem
 }
 
+pub fn resolve_media_target(
+    base_dir: &Path,
+    safe_title: &str,
+    is_series: bool,
+    season: usize,
+    episode: usize,
+) -> (PathBuf, String) {
+    if is_series {
+        (
+            base_dir
+                .join("Series")
+                .join(safe_title)
+                .join(format!("Season {season}")),
+            format!("{safe_title} - S{season:02}E{episode:02}"),
+        )
+    } else {
+        (
+            base_dir.join("Movies").join(safe_title),
+            safe_title.to_string(),
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
     pub downloaded: u64,
@@ -961,7 +984,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("mbx_seg_inplace_{}", std::process::id()));
         tokio::fs::create_dir_all(&temp_dir).await.unwrap();
         let dest_file = temp_dir.join("movie.mp4");
-        let client = crate::net::streaming_client_builder().build().unwrap();
+        let client = crate::net::http_client_builder_base().build().unwrap();
         let cancel = Arc::new(AtomicBool::new(false));
         let mut max_workers = 0usize;
 
@@ -1150,7 +1173,7 @@ mod tests {
             "secret-token-123".parse().unwrap(),
         );
 
-        let client = crate::net::streaming_client_builder()
+        let client = crate::net::http_client_builder_base()
             .default_headers(headers)
             .build()
             .unwrap();

@@ -200,14 +200,16 @@ pub fn parse_releases(
         let size_text = item
             .select(size_selector)
             .filter_map(|node| text_of(Some(node)))
-            .find(|text| parse_size_bytes(text).is_some());
+            .find(|text| crate::providers::models::parse_size_bytes(text).is_some());
         let key = normalize_filename(&filename);
         let release = grouped.entry(key).or_insert_with(|| Release {
             provider: ProviderKind::FourKHdHub,
             quality: detect_quality(&filename),
             codec: detect_codec(&filename),
             language: detect_language(&filename).or_else(|| page_language.clone()),
-            size_bytes: size_text.as_deref().and_then(parse_size_bytes),
+            size_bytes: size_text
+                .as_deref()
+                .and_then(crate::providers::models::parse_size_bytes),
             season: parsed_episode.map(|value| value.0),
             episode: parsed_episode.map(|value| value.1),
             filename: filename.clone(),
@@ -373,22 +375,6 @@ fn parse_season_episode(value: &str) -> Option<(usize, usize)> {
             upper[season_end + 1..episode_end].parse(),
         ) {
             return Some((season, episode));
-        }
-    }
-    None
-}
-
-fn parse_size_bytes(value: &str) -> Option<u64> {
-    let normalized = value.replace(' ', "").to_ascii_uppercase();
-    for (suffix, multiplier) in [
-        ("GB", 1024_u64.pow(3)),
-        ("MB", 1024_u64.pow(2)),
-        ("KB", 1024_u64),
-    ] {
-        if let Some(number) = normalized.strip_suffix(suffix)
-            && let Ok(number) = number.parse::<f64>()
-        {
-            return Some((number * multiplier as f64) as u64);
         }
     }
     None

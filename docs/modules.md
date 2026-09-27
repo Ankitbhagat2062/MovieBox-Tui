@@ -116,8 +116,6 @@ src/
     mod.rs           App struct, App::new, and small helpers.
     run.rs           App::run (event loop), App::draw (rendering), and
                      handle_action dispatcher (thin routing table over action groups).
-    network.rs       fetch_poster_bytes, decode_poster, provider_search,
-                     provider_details.
     search.rs        Search-mode command routing, search state setup, provider
                      search dispatch, poster prefetch helpers.
     requests.rs      handle_requests: suggest/history/homepage/details/preview/

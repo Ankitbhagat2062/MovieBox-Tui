@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FavoriteItem {
@@ -74,14 +74,10 @@ pub struct FavoritesManager {
 
 impl FavoritesManager {
     pub fn new() -> Self {
-        match Self::favorites_file_path() {
+        match crate::config::favorites_path() {
             Some(path) => Self::load_from_path(&path),
             None => Self::default(),
         }
-    }
-
-    fn favorites_file_path() -> Option<PathBuf> {
-        crate::config::favorites_path()
     }
 
     pub fn load_from_path(path: &Path) -> Self {
@@ -93,17 +89,7 @@ impl FavoritesManager {
                         return manager;
                     }
                     Err(e) => {
-                        let stamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        let corrupt_path = path.with_extension(format!("corrupt.{stamp}"));
-                        log::error!(
-                            "failed to parse favorites from {} ({e}), rotating to {}",
-                            crate::logging::sanitize_path(path),
-                            crate::logging::sanitize_path(&corrupt_path)
-                        );
-                        let _ = fs::rename(path, corrupt_path);
+                        crate::config::rotate_corrupt_file(path, &format!("favorites ({e})"));
                     }
                 },
                 Err(e) => {
@@ -118,7 +104,7 @@ impl FavoritesManager {
     }
 
     pub fn save(&self) {
-        if let Some(path) = Self::favorites_file_path() {
+        if let Some(path) = crate::config::favorites_path() {
             self.save_to_path(&path);
         }
     }

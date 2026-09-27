@@ -91,6 +91,7 @@ local function write_state(force_completed)
         meta_json = meta_json .. string.format(',"stream_filename":%q', meta_stream)
     end
 
+    local now = os.time()
     local json = string.format(
         '{"provider":%q,"subject_id":%q,"season":%d,"episode":%d,"progress_seconds":%d,"duration_seconds":%s,"completed":%s,"timestamp":%d%s}',
         opts.provider,
@@ -231,5 +232,10 @@ mod tests {
             sanitize_component("subject*with?forbidden<chars>|quote\""),
             "subject_with_forbidden_chars__quote"
         );
+    }
+
+    #[test]
+    fn lua_tracker_defines_now_before_formatting_json() {
+        assert!(super::TRACKER_LUA_CONTENT.contains("local now = os.time()"));
     }
 }

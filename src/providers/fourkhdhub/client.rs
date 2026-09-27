@@ -140,9 +140,9 @@ impl FourKHdHubClient {
         candidates.sort_by_key(|cand| cand.0);
         let mut unique_candidates = Vec::new();
         let mut seen = std::collections::HashSet::new();
-        for (_, url, label, headers) in candidates {
+        for (cand_score, url, label, headers) in candidates {
             if seen.insert(url.clone()) {
-                unique_candidates.push((url, label, headers));
+                unique_candidates.push((cand_score, url, label, headers));
             }
         }
 
@@ -154,7 +154,7 @@ impl FourKHdHubClient {
 
         use futures::StreamExt;
         let mut preflight_tasks = futures::stream::FuturesUnordered::new();
-        for (url, label, headers) in unique_candidates.into_iter().take(6) {
+        for (cand_score, url, label, headers) in unique_candidates.into_iter().take(6) {
             let this = self.clone();
             let mut merged = headers;
             if !merged
@@ -170,28 +170,50 @@ impl FourKHdHubClient {
                 merged.push(("User-Agent".to_string(), BROWSER_UA.to_string()));
             }
             preflight_tasks.push(async move {
-                let playable_url = this.preflight(&url, &merged).await?;
-                Ok::<_, FourKHdHubError>((playable_url, label, merged))
+                let (playable_url, is_seekable) =
+                    this.preflight_with_seekable(&url, &merged).await?;
+                let resolved_score = cand_score.min(hubcloud::score(&playable_url, &label, intent));
+                Ok::<_, FourKHdHubError>((is_seekable, resolved_score, playable_url, label, merged))
             });
         }
 
+        let mut fallbacks = Vec::new();
         while let Some(res) = preflight_tasks.next().await {
-            if let Ok((playable_url, label, headers)) = res {
-                log::info!(
-                    "4KHDHub mirror playable: {label} ({})",
-                    crate::logging::sanitize_url(&playable_url)
-                );
-                return Ok(PlaybackSource {
-                    provider: ProviderKind::FourKHdHub,
-                    url: playable_url,
-                    headers,
-                    subtitle: None,
-                    source_label: label,
-                    max_height: None,
-                });
+            if let Ok((is_seekable, resolved_score, playable_url, label, headers)) = res {
+                if is_seekable && resolved_score <= 1 {
+                    log::info!(
+                        "4KHDHub seekable mirror playable: {label} ({})",
+                        crate::logging::sanitize_url(&playable_url)
+                    );
+                    return Ok(PlaybackSource {
+                        provider: ProviderKind::FourKHdHub,
+                        url: playable_url,
+                        headers,
+                        subtitle: None,
+                        source_label: label,
+                        max_height: None,
+                    });
+                }
+                fallbacks.push((is_seekable, resolved_score, playable_url, label, headers));
             }
         }
 
+        fallbacks
+            .sort_by_key(|(is_seekable, resolved_score, _, _, _)| (!*is_seekable, *resolved_score));
+        if let Some((_, _, playable_url, label, headers)) = fallbacks.into_iter().next() {
+            log::info!(
+                "4KHDHub fallback mirror playable: {label} ({})",
+                crate::logging::sanitize_url(&playable_url)
+            );
+            return Ok(PlaybackSource {
+                provider: ProviderKind::FourKHdHub,
+                url: playable_url,
+                headers,
+                subtitle: None,
+                source_label: label,
+                max_height: None,
+            });
+        }
         log::error!(
             "4KHDHub: no playable mirror for release {:?}",
             release.filename
@@ -206,6 +228,16 @@ impl FourKHdHubClient {
         url: &str,
         headers: &[(String, String)],
     ) -> Result<String, FourKHdHubError> {
+        self.preflight_with_seekable(url, headers)
+            .await
+            .map(|(u, _)| u)
+    }
+
+    async fn preflight_with_seekable(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+    ) -> Result<(String, bool), FourKHdHubError> {
         let probe = async {
             hubcloud::validate_playback_url(url)?;
             let mut request = self
@@ -216,6 +248,7 @@ impl FourKHdHubClient {
                 request = request.header(name, value);
             }
             let response = request.send().await?.error_for_status()?;
+            let mut is_seekable = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
             let mut final_url = response.url().clone();
             hubcloud::validate_playback_url(final_url.as_str())?;
             let content_type = response
@@ -264,6 +297,7 @@ impl FourKHdHubClient {
                     wrapped_request = wrapped_request.header(name, value);
                 }
                 let wrapped_response = wrapped_request.send().await?.error_for_status()?;
+                is_seekable = wrapped_response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
                 final_url = wrapped_response.url().clone();
                 hubcloud::validate_playback_url(final_url.as_str())?;
                 let wrapped_type = wrapped_response
@@ -297,7 +331,7 @@ impl FourKHdHubClient {
                     )));
                 }
             }
-            Ok(final_url.to_string())
+            Ok((final_url.to_string(), is_seekable))
         };
 
         tokio::time::timeout(std::time::Duration::from_millis(3500), probe)

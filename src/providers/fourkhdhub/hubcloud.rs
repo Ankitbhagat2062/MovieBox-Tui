@@ -409,6 +409,7 @@ pub fn score(url: &str, label: &str, intent: ResolutionIntent) -> u8 {
                 || value.contains("cloudflarestorage.com")
                 || value.contains("r2.cloudflarestorage.com")
                 || value.contains("fsl server")
+                || value.contains("10gbps")
                 || value.contains("r2.dev")
                 || value.contains("watch online")
             {
