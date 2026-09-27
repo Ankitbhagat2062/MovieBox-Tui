@@ -77,6 +77,9 @@ pub fn is_test_environment() -> bool {
 }
 
 pub fn config_dir() -> Option<PathBuf> {
+    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
+        return Some(sandbox.join("config").join(APP_NAME));
+    }
     if let Ok(dir) = std::env::var("MOVIEBOX_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
     }
@@ -110,6 +113,9 @@ pub fn config_dir() -> Option<PathBuf> {
 }
 
 pub fn data_dir() -> Option<PathBuf> {
+    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
+        return Some(sandbox.join("data").join(APP_NAME));
+    }
     if let Ok(dir) = std::env::var("MOVIEBOX_DATA_DIR") {
         return Some(PathBuf::from(dir));
     }
@@ -143,6 +149,9 @@ pub fn data_dir() -> Option<PathBuf> {
 }
 
 pub fn cache_dir() -> PathBuf {
+    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
+        return sandbox.join("cache").join(APP_NAME);
+    }
     if let Ok(dir) = std::env::var("MOVIEBOX_CACHE_DIR") {
         return PathBuf::from(dir);
     }
