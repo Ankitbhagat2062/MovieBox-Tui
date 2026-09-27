@@ -430,8 +430,8 @@ fn mpv_command(
     command.arg(format!("{prefix}geometry=50%:50%"));
     command.arg(format!("{prefix}cache=yes"));
     command.arg(format!("{prefix}cache-pause=yes"));
-    command.arg(format!("{prefix}cache-pause-wait=2"));
-    command.arg(format!("{prefix}cache-pause-initial=no"));
+    command.arg(format!("{prefix}cache-pause-wait=10"));
+    command.arg(format!("{prefix}cache-pause-initial=yes"));
     let (max_bytes, back_bytes) =
         if cfg!(target_os = "android") || crate::updater::artifact::is_termux_environment() {
             ("128M", "50M")
@@ -1896,8 +1896,8 @@ mod tests {
         assert!(args.contains(&"--autofit=1920x1080".to_string()));
         assert!(args.contains(&"--cache=yes".to_string()));
         assert!(args.contains(&"--cache-pause=yes".to_string()));
-        assert!(args.contains(&"--cache-pause-wait=2".to_string()));
-        assert!(args.contains(&"--cache-pause-initial=no".to_string()));
+        assert!(args.contains(&"--cache-pause-wait=10".to_string()));
+        assert!(args.contains(&"--cache-pause-initial=yes".to_string()));
         assert!(args.contains(&"--demuxer-max-bytes=256M".to_string()));
         assert!(args.contains(&"--demuxer-readahead-secs=120".to_string()));
         assert!(args.contains(&"--demuxer-lavf-buffersize=1048576".to_string()));

@@ -9,7 +9,7 @@
   - Preserved stable card slot positions during search pagination in `src/tui/app/requests.rs` by appending subsequent page items to the list rather than re-sorting the entire array out from under the cursor.
 - **Media Playback & Buffering Engine**:
   - Prioritized native desktop media players (`mpv`, `VLC`) over Android intent openers in `src/player.rs` when an active X11/Wayland display server (`$DISPLAY`, `$WAYLAND_DISPLAY`) is detected, preventing Ubuntu Xfce (udroid/PRoot) and Termux:X11 desktop sessions from dispatching playback to external Android app choosers.
-  - Reduced `mpv` and `IINA` cache-pause wait penalty from 8 seconds to 2 seconds (`--cache-pause-wait=2`) and disabled startup cache pause (`--cache-pause-initial=no`) in `src/player.rs`, preventing multi-second playback stalls on minor network dips.
+  - Configured `mpv` and `IINA` with initial cache buffering (`--cache-pause-initial=yes`) and resilient re-buffer cushion (`--cache-pause-wait=10`) in `src/player.rs`, preventing repeated 2-second stutter loops on bandwidth-constrained CDN streams.
   - Replaced aggressive VLC buffering flags (`--network-caching=10000`, `--adaptive-logic=nearoptimal`) with `--network-caching=3000` and `--adaptive-logic=predictive` in `src/player.rs` to stop demuxer stream restarts and 10-second stall loops.
   - Enabled HTTP/1.1 persistent connections (`Keep-Alive`) across DASH segment streaming in `src/proxy.rs`, eliminating recurring TCP handshake overhead.
   - Enforced `max_height` resolution limits in the loopback stream proxy manifest rewriter (`src/proxy.rs`, `src/main.rs`, `src/tui/app/playback.rs`), pruning representations exceeding the chosen ceiling so Android players and VLC respect 480p and 720p selections.
