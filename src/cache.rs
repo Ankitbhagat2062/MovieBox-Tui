@@ -531,6 +531,7 @@ pub fn set_captions_cache_typed(subject_id: &str, resource_id: &str, captions: &
     set_typed_cache(&path, CACHE_EXPIRY_SECS, captions);
 }
 
+#[cfg_attr(windows, allow(clippy::permissions_set_readonly_false))]
 fn resilient_remove_file(path: &Path) -> std::io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
