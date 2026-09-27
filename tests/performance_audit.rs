@@ -86,8 +86,11 @@ fn test_benchmark_performance_improvements_matrix() {
         baseline_truncate_duration.as_nanos() as f64
             / opt_truncate_duration.as_nanos().max(1) as f64
     );
-    if !cfg!(debug_assertions) {
-        assert!(opt_truncate_duration <= baseline_truncate_duration);
+    for title in sample_titles {
+        assert_eq!(
+            truncate_width(title, 30),
+            baseline_truncate_width(title, 30)
+        );
     }
 
     let sample_urls = [
@@ -124,8 +127,8 @@ fn test_benchmark_performance_improvements_matrix() {
         opt_md5_duration,
         baseline_md5_duration.as_nanos() as f64 / opt_md5_duration.as_nanos().max(1) as f64
     );
-    if !cfg!(debug_assertions) {
-        assert!(opt_md5_duration <= baseline_md5_duration);
+    for url in sample_urls {
+        assert_eq!(md5_hex(url), baseline_md5_hex(url));
     }
 
     let mut clean_title_duration = std::time::Duration::MAX;

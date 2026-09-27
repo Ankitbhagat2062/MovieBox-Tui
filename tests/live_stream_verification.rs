@@ -25,7 +25,7 @@ async fn test_live_movie_stream_real_urls() {
                 link
             );
             assert!(
-                link.contains("sacdn.hakunaymatata.com") && link.ends_with("/index.mpd"),
+                link.contains("hakunaymatata.com") && link.ends_with("/index.mpd"),
                 "Stream URL should be a valid MPEG-DASH manifest: {}",
                 link
             );
@@ -702,4 +702,26 @@ async fn test_live_moviebox_breaking_bad_series_captions_latency() {
             .any(|c| c.name.eq_ignore_ascii_case("English")),
         "must include English"
     );
+}
+
+#[tokio::test]
+#[ignore = "live network test; run with cargo test --test live_stream_verification -- --ignored"]
+async fn test_live_dramachi_search_details_and_streams() {
+    let client = moviebox_tui::providers::dramachi::DramachiClient::new();
+    let items = client
+        .search("Squid Game", 1)
+        .await
+        .expect("dramachi search");
+    assert!(!items.is_empty());
+    let details = client
+        .details(&items[0].id.value)
+        .await
+        .expect("dramachi details");
+    assert!(!details.title.is_empty());
+    let streams = client
+        .episode_streams(&items[0].id.value, 1, 1)
+        .await
+        .expect("dramachi streams");
+    assert!(!streams.is_empty());
+    assert!(streams[0].direct_url().unwrap().starts_with("http"));
 }

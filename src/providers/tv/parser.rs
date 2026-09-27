@@ -130,7 +130,7 @@ impl M3UParser {
         let mut current_channel = Channel::default();
 
         for line in content.lines() {
-            let line = line.trim();
+            let line = line.trim().trim_start_matches('\u{feff}');
             if line.is_empty() {
                 continue;
             }
@@ -273,5 +273,20 @@ http://example.com/movie.m3u8
         );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_m3u_handles_utf8_bom_and_stream_inf_headers() {
+        let parser = M3UParser::new();
+        let content = "\u{feff}#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\n#EXTINF:-1 tvg-id=\"sp1\" group-title=\"Sports\",Sports Live\n#EXTVLCOPT:http-user-agent=CustomUA\nhttps://live.example.com/sports.m3u8\n";
+        let channels = parser.parse_m3u(content);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].id, "sp1");
+        assert_eq!(channels[0].name, "Sports Live");
+        assert_eq!(channels[0].group, "Sports");
+        assert_eq!(
+            channels[0].stream_url,
+            "https://live.example.com/sports.m3u8"
+        );
     }
 }

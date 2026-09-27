@@ -343,7 +343,7 @@ impl App {
                         }
                     } else if col < layout.open_btn_end_x {
                         let url = crate::updater::check::release_tag_url(ver);
-                        let _ = open::that(&url);
+                        let _ = crate::net::open_external_url(&url);
                     }
                     self.state.update_available = None;
                 }

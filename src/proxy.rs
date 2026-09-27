@@ -1411,4 +1411,82 @@ mod tests {
         assert_eq!(request_count.load(Ordering::Relaxed), 3);
         server.abort();
     }
+
+    #[tokio::test]
+    async fn test_warmup_dash_sidecar_populates_manifest_and_opening_segments() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    if req.contains("/dash/index.mpd") {
+                        let mpd = r#"<MPD><Period><AdaptationSet contentType="video"><Representation id="0" height="720" bandwidth="1000"><SegmentTemplate initialization="init-stream$RepresentationID$.m4s" media="chunk-stream$RepresentationID$-$Number%05d$.m4s"/></Representation></AdaptationSet></Period></MPD>"#;
+                        let hdr = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/dash+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            mpd.len(),
+                            mpd
+                        );
+                        let _ = socket.write_all(hdr.as_bytes()).await;
+                    } else {
+                        let seg = b"SEGMENT_BYTES";
+                        let hdr = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: video/iso.segment\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            seg.len()
+                        );
+                        let _ = socket.write_all(hdr.as_bytes()).await;
+                        let _ = socket.write_all(seg).await;
+                    }
+                });
+            }
+        });
+
+        let target_url = format!("http://{addr}/dash/index.mpd");
+        let ctx = ProxyContext {
+            proxy_port: addr.port(),
+            client: crate::net::http_client_builder_base().build().unwrap(),
+            auth_headers: Arc::new(Vec::new()),
+            target_host: Some(addr.to_string()),
+            subtitle_url: None,
+            max_height: Some(720),
+            segment_cache: Arc::new(SegmentCache::default()),
+            manifest_cache: Arc::new(Mutex::new(None)),
+        };
+
+        warmup_dash_sidecar(&ctx, &target_url).await;
+        for _ in 0..20 {
+            if ctx
+                .segment_cache
+                .get(&format!("http://{addr}/dash/chunk-stream0-00001.m4s"))
+                .is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        assert!(ctx.manifest_cache.lock().unwrap().is_some());
+        assert!(
+            ctx.segment_cache
+                .get(&format!("http://{addr}/dash/init-stream0.m4s"))
+                .is_some()
+        );
+        assert!(
+            ctx.segment_cache
+                .get(&format!("http://{addr}/dash/init-stream3.m4s"))
+                .is_some()
+        );
+        assert!(
+            ctx.segment_cache
+                .get(&format!("http://{addr}/dash/chunk-stream0-00001.m4s"))
+                .is_some()
+        );
+        server.abort();
+    }
 }

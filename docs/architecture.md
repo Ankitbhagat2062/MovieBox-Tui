@@ -148,9 +148,9 @@ interval, forwarding them into the action channel (capacity 128).
 1. User selects a result → `Action::PlayStream` (moviebox) or 4KHDHub/BDIX resolve.
 2. The provider resolves a `PlaybackSource` (url + optional headers/subtitle).
 3. `launch_player` builds the player command (`player.rs`), optionally downloads the
-   subtitle to a temp file, and spawns the player with null stdin/stdout and piped
-   stderr; a blocking task waits and reports crashes.
-4. Playback is handed to mpv / VLC / IINA / Android intent per the active player.
+   subtitle to a temp file, and spawns the player in a detached OS session (`setsid` /
+   `DETACHED_PROCESS`) with null stdin/stdout and file-backed stderr logging; a
+   blocking task waits and reports crashes while the TUI remains open.
 
 ## Configuration and persistence
 

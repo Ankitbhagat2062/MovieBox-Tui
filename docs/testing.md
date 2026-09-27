@@ -4,7 +4,7 @@ This document describes the testing architecture, quality assurance procedures, 
 
 ## 1. Test Architecture
 
-The test suite comprises **510 automated tests across 12 test suites** (381 unit tests in `src/lib.rs` and 129 integration tests across 10 focused suites in `tests/`), running fully offline by default without mocking or live network dependencies.
+The test suite runs in an isolated process sandbox (`TEST_SANDBOX_DIR` in `src/config.rs`) that redirects `config_dir()`, `data_dir()`, and `cache_dir()` to temporary directories and guards external browser launches (`open_external_url` in `src/net.rs`), ensuring tests never read, mutate, or delete host user files (`~/.config`, `~/.local/share`, `~/.cache`).
 The MovieBox-TUI test architecture follows a strict separation of concerns:
 
 ```text
@@ -48,7 +48,7 @@ Integration tests live in the `tests/` directory and test externally observable 
 - **`history_audit.rs`**: Validates cross-mode watch progress, series advancement and completion tracking, threshold boundaries for in-progress states, history disk persistence roundtrips, Lua tracker reconciliation, update precision preservation, repeated play deduplication, and `/history` search list integration.
 - **`favorites_lifecycle.rs`**: Validates Favorites persistence boundaries, identity deduplication, `/favorites` loading, landing-row navigation, and independence from watch-history clearing.
 - **`performance_audit.rs`**: Validates empirical performance benchmarks and regression thresholds across algorithmic hot paths (SIMD text truncation, MD5 hex table lookup, M3U capacity preallocation, and headless frame draw latencies).
-- **`live_stream_verification.rs`**: Validates real-world stream link resolution across MovieBox signed CDN endpoints and 4KHDHub multi-mirror releases. The tests are `#[ignore]`-gated for offline execution; opt in with `cargo test --test live_stream_verification -- --ignored`.
+- **`live_stream_verification.rs`**: Validates real-world stream link resolution across MovieBox signed CDN endpoints, 4KHDHub multi-mirror releases, and Dramachi streams. The tests are `#[ignore]`-gated for offline execution; opt in with `cargo test --test live_stream_verification -- --ignored`.
 ---
 
 ## 2. Running Automated Tests

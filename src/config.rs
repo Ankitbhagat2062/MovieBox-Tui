@@ -55,9 +55,33 @@ impl Default for Config {
 
 pub const APP_NAME: &str = "moviebox-tui";
 
+static TEST_SANDBOX_DIR: std::sync::LazyLock<Option<PathBuf>> = std::sync::LazyLock::new(|| {
+    let is_test_binary = cfg!(test)
+        || std::env::var_os("NEXTEST").is_some()
+        || std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().and_then(|d| d.file_name()).map(|n| n == "deps"))
+            .unwrap_or(false);
+    if is_test_binary {
+        let dir =
+            std::env::temp_dir().join(format!("moviebox_test_sandbox_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir)
+    } else {
+        None
+    }
+});
+
+pub fn is_test_environment() -> bool {
+    TEST_SANDBOX_DIR.is_some()
+}
+
 pub fn config_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("MOVIEBOX_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
+    }
+    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
+        return Some(sandbox.join("config").join(APP_NAME));
     }
     if let Some(dir) = dirs::config_dir() {
         return Some(dir.join(APP_NAME));
@@ -89,6 +113,9 @@ pub fn data_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("MOVIEBOX_DATA_DIR") {
         return Some(PathBuf::from(dir));
     }
+    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
+        return Some(sandbox.join("data").join(APP_NAME));
+    }
     if let Some(dir) = dirs::data_dir() {
         return Some(dir.join(APP_NAME));
     }
@@ -118,6 +145,9 @@ pub fn data_dir() -> Option<PathBuf> {
 pub fn cache_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MOVIEBOX_CACHE_DIR") {
         return PathBuf::from(dir);
+    }
+    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
+        return sandbox.join("cache").join(APP_NAME);
     }
     if let Some(dir) = dirs::cache_dir() {
         return dir.join(APP_NAME);

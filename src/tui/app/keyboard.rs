@@ -139,7 +139,7 @@ impl App {
                     }
                     KeyCode::Char('o') | KeyCode::Char('O') => {
                         let url = crate::updater::check::release_tag_url(version);
-                        let _ = open::that(&url);
+                        let _ = crate::net::open_external_url(&url);
                         self.state.update_available = None;
                         return None;
                     }

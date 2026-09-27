@@ -131,6 +131,13 @@ pub fn is_http_url(source: &str) -> bool {
     let trimmed = source.trim();
     trimmed.starts_with("http://") || trimmed.starts_with("https://")
 }
+
+pub fn open_external_url(url: &str) -> std::io::Result<()> {
+    if crate::config::is_test_environment() {
+        return Ok(());
+    }
+    open::that(url)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,11 +174,41 @@ mod tests {
         );
     }
 
-    #[test]
-    fn clones_share_lazy_state_slot() {
-        let original = FallbackResolver::new();
-        let _clone = original.clone();
-        let _builder = http_client_builder();
+    #[tokio::test]
+    async fn probe_url_falls_back_from_head_to_ranged_get() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for _ in 0..2 {
+                if let Ok((mut stream, _)) = listener.accept().await {
+                    let mut buf = [0u8; 1024];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    if req.starts_with("HEAD ") {
+                        let _ = stream
+                            .write_all(
+                                b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n",
+                            )
+                            .await;
+                    } else if req.starts_with("GET ")
+                        && req.to_ascii_lowercase().contains("range: bytes=0-0")
+                    {
+                        let _ = stream
+                            .write_all(
+                                b"HTTP/1.1 206 Partial Content\r\nContent-Length: 1\r\n\r\nX",
+                            )
+                            .await;
+                    } else {
+                        let _ = stream
+                            .write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+                            .await;
+                    }
+                }
+            }
+        });
+        let url = format!("http://{addr}/video.mkv");
+        assert!(probe_url(&url, std::time::Duration::from_secs(2)).await);
     }
     #[test]
     fn test_is_http_url() {

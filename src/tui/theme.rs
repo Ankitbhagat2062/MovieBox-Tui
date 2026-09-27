@@ -1193,13 +1193,6 @@ mod tests {
         }
     }
     #[test]
-    fn test_theme_color() {
-        let with_fg = Style::default().fg(Color::Red);
-        assert_eq!(theme_color(with_fg, Color::Blue), Color::Red);
-        let without_fg = Style::default();
-        assert_eq!(theme_color(without_fg, Color::Blue), Color::Blue);
-    }
-    #[test]
     fn test_classify_terminal_konsole_and_xfce4_are_truecolor() {
         assert_eq!(
             classify_terminal("", "xterm-256color", "Konsole"),

@@ -64,3 +64,56 @@ pub fn circleftp_search_to_catalog(response: &CircleFtpSearchResponse) -> Vec<Ca
     }
     items
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_circleftp_search_to_catalog_maps_movies_and_series() {
+        let json_str = r#"{
+            "posts": [
+                {
+                    "id": 101,
+                    "title": "Dune: Part Two",
+                    "type": "movie",
+                    "year": 2024,
+                    "image": "dune2.jpg"
+                },
+                {
+                    "id": 202,
+                    "name": "Severance",
+                    "type": "series",
+                    "year": "2022",
+                    "imageSm": "sev_sm.jpg"
+                }
+            ]
+        }"#;
+        let response: CircleFtpSearchResponse = serde_json::from_str(json_str).unwrap();
+        let catalog = circleftp_search_to_catalog(&response);
+        assert_eq!(catalog.len(), 2);
+        assert_eq!(catalog[0].id.value, "101");
+        assert_eq!(catalog[0].title, "Dune: Part Two");
+        assert_eq!(catalog[0].media_type, MediaType::Movie);
+        assert_eq!(catalog[0].year.as_deref(), Some("2024"));
+        assert!(
+            catalog[0]
+                .poster_url
+                .as_deref()
+                .unwrap()
+                .ends_with("dune2.jpg")
+        );
+
+        assert_eq!(catalog[1].id.value, "202");
+        assert_eq!(catalog[1].title, "Severance");
+        assert_eq!(catalog[1].media_type, MediaType::Series);
+        assert_eq!(catalog[1].year.as_deref(), Some("2022"));
+        assert!(
+            catalog[1]
+                .poster_url
+                .as_deref()
+                .unwrap()
+                .ends_with("sev_sm.jpg")
+        );
+    }
+}

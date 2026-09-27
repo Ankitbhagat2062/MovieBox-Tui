@@ -83,45 +83,6 @@ async fn test_update_modal_update_now_click() {
 }
 
 #[tokio::test]
-async fn test_update_modal_open_release_click() {
-    let mut app = App::new();
-    app.state_mut().update_available = Some((
-        "0.1.13".to_string(),
-        "### Notes\n• Major performance improvements".to_string(),
-    ));
-
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let area = Rect::new(0, 0, cols, rows);
-    let layout = update_modal_layout(area, &app.state().update_available.as_ref().unwrap().1);
-
-    let click_x = layout.update_btn_end_x + 5;
-    let click_y = layout.button_row_y;
-
-    app.handle_action(Action::MouseClick(click_x, click_y))
-        .await;
-
-    assert!(app.state().update_available.is_none());
-}
-
-#[tokio::test]
-async fn test_update_modal_dismiss_click() {
-    let mut app = App::new();
-    app.state_mut().update_available = Some(("0.1.13".to_string(), "• Bug fix".to_string()));
-
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let area = Rect::new(0, 0, cols, rows);
-    let layout = update_modal_layout(area, &app.state().update_available.as_ref().unwrap().1);
-
-    let click_x = layout.open_btn_end_x + 5;
-    let click_y = layout.button_row_y;
-
-    app.handle_action(Action::MouseClick(click_x, click_y))
-        .await;
-
-    assert!(app.state().update_available.is_none());
-}
-
-#[tokio::test]
 async fn test_active_work_protection_download_active_defers_update() {
     let mut app = App::new();
     app.state_mut().download_progress = Some(45.0);

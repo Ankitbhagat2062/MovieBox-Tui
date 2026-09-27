@@ -2044,4 +2044,49 @@ mod tests {
         let status = child.wait().expect("wait detached sh");
         assert!(status.success());
     }
+
+    #[test]
+    fn test_iina_command_dash_vs_direct_and_script_filtering() {
+        let direct_cmd = command(
+            PlayerKind::Iina,
+            "https://cdn.example.com/movie.mkv",
+            Some("/tmp/sub.srt"),
+            &[("Referer".to_string(), "https://example.com".to_string())],
+            Some((1280, 720)),
+            Some(120),
+            Some(("moviebox", "subj_1", 1, 1)),
+            Some(1080),
+        );
+        let direct_args: Vec<String> = direct_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(direct_args.iter().any(|a| a.ends_with("hwdec=auto-safe")));
+        assert!(
+            direct_args
+                .iter()
+                .any(|a| a.ends_with("stream-buffer-size=4M"))
+        );
+        assert!(direct_args.iter().any(|a| a.ends_with("ytdl=no")));
+        assert!(!direct_args.iter().any(|a| a.contains("force-seekable=yes")));
+        #[cfg(target_os = "macos")]
+        assert!(!direct_args.iter().any(|a| a.starts_with("--mpv-script=")));
+
+        let dash_cmd = command(
+            PlayerKind::Iina,
+            "http://127.0.0.1:9000/https/cdn.example.com/dash/index.mpd",
+            None,
+            &[],
+            None,
+            None,
+            None,
+            Some(720),
+        );
+        let dash_args: Vec<String> = dash_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(dash_args.iter().any(|a| a.ends_with("force-seekable=yes")));
+        assert!(!dash_args.iter().any(|a| a.ends_with("ytdl=no")));
+    }
 }

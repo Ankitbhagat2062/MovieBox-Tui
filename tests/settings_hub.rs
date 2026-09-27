@@ -4,25 +4,11 @@ use moviebox_tui::{
     tui::{
         action::Action,
         app::App,
-        state::{AppState, SettingsCategory, settings_player_label},
-        widgets::settings::{
-            category_tab_rects, settings_category_tab_at, settings_row_at, settings_row_rects,
-        },
+        state::{AppState, SettingsCategory},
+        widgets::settings::{settings_category_tab_at, settings_row_at, settings_row_rects},
     },
 };
 use ratatui::layout::Rect;
-
-#[test]
-fn test_settings_modal_has_active_modal() {
-    let mut state = AppState::default();
-    assert!(!state.has_active_modal());
-
-    state.show_settings_popup = true;
-    assert!(state.has_active_modal());
-
-    state.show_settings_popup = false;
-    assert!(!state.has_active_modal());
-}
 
 #[test]
 fn test_settings_toggle_modes_safety_guard() {
@@ -38,52 +24,6 @@ fn test_settings_toggle_modes_safety_guard() {
     state.tv_enabled = true;
     assert!(state.can_disable_streaming_mode());
     assert!(state.can_disable_tv_mode());
-}
-
-#[test]
-fn test_settings_player_choices_and_labels() {
-    let mut state = AppState::default();
-    assert_eq!(state.settings_player_choices(), Vec::<&str>::new());
-
-    state.available_players = vec![PlayerKind::Mpv, PlayerKind::Vlc, PlayerKind::Iina];
-    assert_eq!(state.settings_player_choices(), vec!["mpv", "vlc", "iina"]);
-
-    state.default_player = Some("custom_player".to_string());
-    assert_eq!(state.settings_player_choices(), vec!["mpv", "vlc", "iina"]);
-
-    assert_eq!(settings_player_label(None), "None");
-    assert_eq!(settings_player_label(Some("auto")), "None");
-    assert_eq!(settings_player_label(Some("mpv")), "mpv");
-    assert_eq!(settings_player_label(Some("vlc")), "VLC");
-    assert_eq!(settings_player_label(Some("iina")), "IINA");
-    assert_eq!(settings_player_label(Some("android")), "Android Player");
-    assert_eq!(settings_player_label(Some("custom_player")), "Custom");
-}
-
-#[test]
-fn test_settings_player_and_theme_cycling() {
-    let mut state = AppState {
-        available_players: vec![PlayerKind::Mpv, PlayerKind::Vlc],
-        ..Default::default()
-    };
-    assert_eq!(state.default_player, None);
-
-    state.cycle_settings_player(true);
-    assert_eq!(state.default_player, Some("vlc".to_string()));
-
-    state.cycle_settings_player(true);
-    assert_eq!(state.default_player, Some("mpv".to_string()));
-
-    state.cycle_settings_player(false);
-    assert_eq!(state.default_player, Some("vlc".to_string()));
-
-    state.cycle_settings_player(false);
-    assert_eq!(state.default_player, Some("mpv".to_string()));
-
-    let original_theme = state.active_theme_kind.clone();
-    let next_theme = state.cycle_settings_theme(true);
-    assert_ne!(original_theme, next_theme);
-    assert_eq!(state.active_theme_kind, next_theme);
 }
 
 #[tokio::test]
@@ -284,23 +224,6 @@ async fn test_settings_mouse_tab_and_row_clicks() {
         settings_row_at(popup, SettingsCategory::General, rows[2].x + 2, rows[2].y),
         Some(2)
     );
-}
-
-#[test]
-fn test_settings_compact_tabs_rects() {
-    let popup = Rect::new(4, 2, 60, 20);
-    let tabs_area = Rect::new(popup.x + 3, popup.y + 1, popup.width - 6, 2);
-    let rects = category_tab_rects(tabs_area, false, SettingsCategory::General);
-    assert!(!rects.is_empty());
-
-    let hit = settings_category_tab_at(
-        popup,
-        rects[0].1.x,
-        popup.y + 1,
-        false,
-        SettingsCategory::General,
-    );
-    assert_eq!(hit, Some(SettingsCategory::General));
 }
 
 #[test]

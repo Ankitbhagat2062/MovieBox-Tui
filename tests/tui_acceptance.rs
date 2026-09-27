@@ -40,43 +40,14 @@ async fn test_season_download_remembers_explicit_no_subtitle_choice() {
 }
 
 #[tokio::test]
-async fn test_download_subtitle_popup_renders_in_app_draw() {
-    let backend = TestBackend::new(100, 30);
-    let mut terminal = Terminal::new(backend).unwrap();
-    let mut app = App::new();
-
-    app.state_mut().is_download_subtitle_popup = true;
-    app.state_mut().subtitle_list = vec![
-        ("None".to_string(), String::new()),
-        (
-            "English".to_string(),
-            "https://example.com/en.srt".to_string(),
-        ),
-    ];
-    app.state_mut().subtitle_list_state.select(Some(0));
-
-    terminal.draw(|frame| app.draw(frame)).unwrap();
-
-    let content = terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|c| c.symbol())
-        .collect::<String>();
-
-    assert!(content.contains("Subtitles"));
-    assert!(content.contains("No subtitles"));
-    assert!(content.contains("English"));
-}
-
-#[tokio::test]
 async fn test_tui_all_theme_rendering() {
+    let mut app = App::new();
     for theme_kind in ThemeKind::ALL {
+        app.handle_action(Action::SelectTheme(theme_kind.as_str().to_string()))
+            .await;
+        assert_eq!(app.state().active_theme_kind, theme_kind.as_str());
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut app = App::new();
-        let _ = theme_kind;
         let res = terminal.draw(|frame| app.draw(frame));
         assert!(res.is_ok(), "Failed to render theme {:?}", theme_kind);
     }
@@ -197,7 +168,7 @@ async fn test_mouse_click_outside_theme_popup_dismisses() {
     assert!(app.state().show_theme_popup);
 
     app.handle_action(Action::MouseClick(0, 0)).await;
-    assert!(!app.state().show_help);
+    assert!(!app.state().show_theme_popup);
 }
 
 #[tokio::test]

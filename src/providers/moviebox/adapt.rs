@@ -1042,72 +1042,32 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_dash_manifest_from_policy_standard_base64() {
-        let policy_json = r#"{"Statement":[{"Resource":"https://sacdn.hakunaymatata.com/dash/item1/*","Condition":{"DateLessThan":{"AWS:EpochTime":1700000000}}}]}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
-        let cookie = format!(
-            "CloudFront-Policy={b64};CloudFront-Signature=abc;CloudFront-Key-Pair-Id=K123;"
-        );
-        let resolved = resolve_dash_manifest_from_policy(&cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sacdn.hakunaymatata.com/dash/item1/index.mpd")
-        );
-    }
-
-    #[test]
-    fn test_resolve_dash_manifest_from_policy_with_dash_substitution() {
-        let policy_json =
-            r#"{"Statement":[{"Resource":"https://sacdn.hakunaymatata.com/dash/test_dash/*"}]}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
-        let cf_b64 = b64.replace('+', "-");
-        let cookie = format!("CloudFront-Policy={cf_b64};CloudFront-Signature=abc;");
-        let resolved = resolve_dash_manifest_from_policy(&cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sacdn.hakunaymatata.com/dash/test_dash/index.mpd")
-        );
-    }
-
-    #[test]
-    fn test_resolve_dash_manifest_from_policy_with_underscore_substitution() {
-        let policy_json = r#"{"Statement":[{"Resource":"https://sacdn.hakunaymatata.com/dash/test_underscore/*"}]}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
-        let cf_b64 = b64.replace('=', "_");
-        let cookie = format!("CloudFront-Policy={cf_b64};CloudFront-Signature=abc;");
-        let resolved = resolve_dash_manifest_from_policy(&cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sacdn.hakunaymatata.com/dash/test_underscore/index.mpd")
-        );
-    }
-
-    #[test]
-    fn test_resolve_dash_manifest_from_policy_with_tilde_substitution() {
-        let policy_json =
-            r#"{"Statement":[{"Resource":"https://sacdn.hakunaymatata.com/dash/test_tilde/*"}]}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
-        let cf_b64 = b64.replace('/', "~");
-        let cookie = format!("CloudFront-Policy={cf_b64};CloudFront-Signature=abc;");
-        let resolved = resolve_dash_manifest_from_policy(&cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sacdn.hakunaymatata.com/dash/test_tilde/index.mpd")
-        );
-    }
-
-    #[test]
-    fn test_resolve_dash_manifest_from_policy_restores_missing_padding() {
-        let policy_json =
-            r#"{"Statement":[{"Resource":"https://sacdn.hakunaymatata.com/dash/test_pad/*"}]}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
-        let unpadded = b64.trim_end_matches('=');
-        let cookie = format!("CloudFront-Policy={unpadded};CloudFront-Signature=abc;");
-        let resolved = resolve_dash_manifest_from_policy(&cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sacdn.hakunaymatata.com/dash/test_pad/index.mpd")
-        );
+    fn test_resolve_dash_manifest_from_policy_base64_variants() {
+        for (slug, transform) in [
+            ("item1", "standard"),
+            ("test_dash", "dash"),
+            ("test_underscore", "underscore"),
+            ("test_tilde", "tilde"),
+            ("test_pad", "unpadded"),
+        ] {
+            let policy_json = format!(
+                r#"{{"Statement":[{{"Resource":"https://sacdn.hakunaymatata.com/dash/{slug}/*"}}]}}"#
+            );
+            let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
+            let cf_b64 = match transform {
+                "dash" => b64.replace('+', "-"),
+                "underscore" => b64.replace('=', "_"),
+                "tilde" => b64.replace('/', "~"),
+                "unpadded" => b64.trim_end_matches('=').to_string(),
+                _ => b64,
+            };
+            let cookie = format!("CloudFront-Policy={cf_b64};CloudFront-Signature=abc;");
+            let resolved = resolve_dash_manifest_from_policy(&cookie);
+            assert_eq!(
+                resolved.as_deref(),
+                Some(format!("https://sacdn.hakunaymatata.com/dash/{slug}/index.mpd").as_str())
+            );
+        }
     }
 
     #[test]
@@ -1127,38 +1087,22 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_dash_manifest_resource_conversion() {
-        let policy_json =
-            r#"{"Statement":[{"Resource":"https://sacdn.hakunaymatata.com/dash/example/*"}]}"#;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(policy_json.as_bytes());
-        let cookie = format!("CloudFront-Policy={b64};");
-        let resolved = resolve_dash_manifest_from_policy(&cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sacdn.hakunaymatata.com/dash/example/index.mpd")
-        );
-    }
-
-    #[test]
-    fn test_resolve_dash_manifest_from_edge_cache_cookie() {
-        let cookie = "Edge-Cache-Cookie=urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20vZGFzaC8zMjY0NzcyNTg4MzMzMTU3NDI0XzBfMF8xMDgwX2gyNjVfNTYwLw:sign=f1a522f7bf4c548c981ad6efa88925ad:t=1789908742";
-        let resolved = resolve_dash_manifest_from_policy(cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some(
-                "https://sbcdn3.hakunaymatata.com/dash/3264772588333157424_0_0_1080_h265_560/index.mpd"
-            )
-        );
-    }
-
-    #[test]
-    fn test_resolve_dash_manifest_from_edge_cache_cookie_unpadded() {
-        let cookie = "Edge-Cache-Cookie=urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20vZGFzaC9pdGVtMQ:sign=abc:t=123";
-        let resolved = resolve_dash_manifest_from_policy(cookie);
-        assert_eq!(
-            resolved.as_deref(),
-            Some("https://sbcdn3.hakunaymatata.com/dash/item1/index.mpd")
-        );
+    fn test_resolve_dash_manifest_from_edge_cache_cookies() {
+        for (cookie, expected) in [
+            (
+                "Edge-Cache-Cookie=urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20vZGFzaC8zMjY0NzcyNTg4MzMzMTU3NDI0XzBfMF8xMDgwX2gyNjVfNTYwLw:sign=f1a522f7bf4c548c981ad6efa88925ad:t=1789908742",
+                "https://sbcdn3.hakunaymatata.com/dash/3264772588333157424_0_0_1080_h265_560/index.mpd",
+            ),
+            (
+                "Edge-Cache-Cookie=urlprefix=aHR0cHM6Ly9zYmNkbjMuaGFrdW5heW1hdGF0YS5jb20vZGFzaC9pdGVtMQ:sign=abc:t=123",
+                "https://sbcdn3.hakunaymatata.com/dash/item1/index.mpd",
+            ),
+        ] {
+            assert_eq!(
+                resolve_dash_manifest_from_policy(cookie).as_deref(),
+                Some(expected)
+            );
+        }
     }
 
     #[test]

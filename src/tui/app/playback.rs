@@ -1627,4 +1627,41 @@ mod tests {
         assert_eq!(app.state.selected_season, 2);
         assert_eq!(app.state.selected_episode, 5);
     }
+
+    #[tokio::test]
+    async fn test_non_mpv_update_progress_is_retained_across_player_exited() {
+        let mut app = crate::tui::app::App::new();
+        let item = crate::history::WatchHistoryItem {
+            provider: "moviebox".to_string(),
+            subject_id: "vlc_retain_test".to_string(),
+            title: "VLC Retention Movie".to_string(),
+            cover_url: None,
+            stype: 1,
+            release_year: "2026".to_string(),
+            season: 0,
+            episode: 0,
+            progress_seconds: 0,
+            duration_seconds: Some(3600),
+            completed: false,
+            timestamp: 1000,
+            stream_filename: Some("Movie.1080p.mkv".to_string()),
+        };
+        app.state.history.record_start(&item, 0);
+        app.handle_playback(crate::tui::action::Action::UpdateProgress {
+            item: Box::new(item),
+            progress: 420,
+            duration: Some(3600),
+            completed: false,
+        })
+        .await;
+        app.handle_playback(crate::tui::action::Action::PlayerExited)
+            .await;
+
+        let saved = app
+            .state
+            .history
+            .get_item("moviebox", "vlc_retain_test", 0, 0, None)
+            .expect("history item exists");
+        assert_eq!(saved.progress_seconds, 420);
+    }
 }

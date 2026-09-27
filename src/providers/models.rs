@@ -533,4 +533,61 @@ mod tests {
             "4KHDHub error (502)."
         );
     }
+
+    #[test]
+    fn test_parse_size_bytes_formats_and_units() {
+        assert_eq!(parse_size_bytes("1.5 GB"), Some(1_610_612_736));
+        assert_eq!(parse_size_bytes("2 GiB"), Some(2_147_483_648));
+        assert_eq!(parse_size_bytes("450MB"), Some(471_859_200));
+        assert_eq!(parse_size_bytes("512 KB"), Some(524_288));
+        assert_eq!(parse_size_bytes("1 TB"), Some(1_099_511_627_776));
+        assert_eq!(parse_size_bytes("💾 2.25 GB ⚡"), Some(2_415_919_104));
+        assert_eq!(parse_size_bytes("No size here"), None);
+        assert_eq!(parse_size_bytes(""), None);
+    }
+
+    #[test]
+    fn test_media_details_sibling_ids_deduplicates_and_sorts() {
+        let details = MediaDetails {
+            id: ProviderMediaId {
+                provider: ProviderKind::MovieBox,
+                value: "sub_main".to_string(),
+            },
+            title: "Test".to_string(),
+            media_type: MediaType::Series,
+            year: None,
+            description: None,
+            tagline: None,
+            imdb_rating: None,
+            director: None,
+            stars: None,
+            prints: None,
+            audios: None,
+            poster_url: None,
+            duration: None,
+            genres: vec![],
+            seasons: vec![],
+            dubs: vec![
+                AudioTrackOption {
+                    subject_id: "sub_hi".to_string(),
+                    language: "Hindi".to_string(),
+                    label: "Hindi".to_string(),
+                },
+                AudioTrackOption {
+                    subject_id: "sub_main".to_string(),
+                    language: "English".to_string(),
+                    label: "English".to_string(),
+                },
+                AudioTrackOption {
+                    subject_id: String::new(),
+                    language: "Empty".to_string(),
+                    label: "Empty".to_string(),
+                },
+            ],
+        };
+        assert_eq!(
+            details.sibling_ids(),
+            vec!["sub_hi".to_string(), "sub_main".to_string()]
+        );
+    }
 }

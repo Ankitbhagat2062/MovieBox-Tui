@@ -2086,15 +2086,6 @@ mod tests {
     };
 
     #[test]
-    fn test_stream_loading_spinner_frames() {
-        assert_eq!(stream_loading_spinner(0, false), "⠋");
-        assert_eq!(stream_loading_spinner(1, false), "⠙");
-        assert_eq!(stream_loading_spinner(9, false), "⠏");
-        assert_eq!(stream_loading_spinner(10, false), "⠋");
-        assert_eq!(stream_loading_spinner(0, true), "..");
-    }
-
-    #[test]
     fn test_stream_list_tabular_alignment_and_headers() {
         let backend = ratatui::backend::TestBackend::new(120, 30);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();

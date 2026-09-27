@@ -48,6 +48,8 @@
   - Optimized typed cache serialization in `src/cache.rs` using direct in-place encoding (`rmp_serde::encode::write`) into pre-seeded magic header buffers, eliminating intermediate vector allocations and duplicate memory copies.
   - Pre-allocated file buffer capacity from file metadata in `get_typed_cache` in `src/cache.rs`, eliminating repetitive vector reallocations during cache reads.
   - Offloaded `atomic_write_file_async` in `src/cache.rs` to `tokio::task::spawn_blocking`, switched `src/logging.rs` to `WriteMode::BufferAndFlush` with a `LazyLock` cached home directory path, centralized corrupt JSON file rotation (`rotate_corrupt_file`) in `src/config.rs`, and enabled cross-platform stale update artifact cleanup in `src/updater/apply.rs`.
+  - Isolated all unit and integration test runs into a per-process temporary sandbox (`TEST_SANDBOX_DIR` in `src/config.rs`) and guarded external browser launches (`open_external_url` in `src/net.rs`), preventing tests from modifying real user configuration, watch history, favorites, or disk cache files.
+  - Added unit and mock-server test coverage for `4KHDHub` HTTP 206 seekable mirror prioritization, `CircleFTP` catalog mapping, `DhakaFlix` stream extraction, `Addons` concurrent stream aggregation and torrent filtering, `TV` UTF-8 BOM / HLS M3U parsing, `IINA` command construction, `StreamRelay` DASH sidecar warmup, non-`mpv` watch progress retention, and `Action::SetStatus` warning/modal toast routing.
 ### Changed
 - **TUI & Ergonomics**:
   - Remapped `q` / `Q` on `Screen::Details` in `src/tui/app/keyboard.rs` from application exit to `Action::GoBack`, preserving active search results and returning to the home screen without unexpected process termination.

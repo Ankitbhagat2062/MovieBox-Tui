@@ -590,7 +590,7 @@ impl App {
                         }
                         4 => {
                             const REPO_URL: &str = "https://github.com/mesamirh/MovieBox-Tui";
-                            match open::that(REPO_URL) {
+                            match crate::net::open_external_url(REPO_URL) {
                                 Ok(()) => {
                                     self.state.notify(
                                         NotificationKind::Info,
@@ -1007,5 +1007,39 @@ impl App {
             self.switch_provider(next);
         }
         self.persist_config();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tui::{action::Action, app::App, overlay::NotificationKind, state::Screen};
+
+    #[tokio::test]
+    async fn test_set_status_routes_warnings_and_non_home_messages_to_notifications() {
+        let mut app = App::new();
+        app.state.active_screen = Screen::Details;
+        app.handle_system(Action::SetStatus(
+            "Warning: External subtitle unavailable; playing stream directly.".to_string(),
+        ))
+        .await;
+
+        let warn_notif = app.state.notifications.back().expect("warning toast");
+        assert_eq!(warn_notif.kind, NotificationKind::Warning);
+        assert_eq!(warn_notif.title, "Notice");
+        assert_eq!(
+            warn_notif.message,
+            "External subtitle unavailable; playing stream directly."
+        );
+
+        app.state.notifications.clear();
+        app.state.active_screen = Screen::Home;
+        app.state.addon_manager_popup = true;
+        app.handle_system(Action::SetStatus("Installed Cinemeta v1.0.0".to_string()))
+            .await;
+
+        let info_notif = app.state.notifications.back().expect("info toast");
+        assert_eq!(info_notif.kind, NotificationKind::Info);
+        assert_eq!(info_notif.title, "Status");
+        assert_eq!(info_notif.message, "Installed Cinemeta v1.0.0");
     }
 }

@@ -27,7 +27,8 @@ The envelope stores the expiration timestamp (`expires_at: u64`) alongside the s
 | `search` | 24 Hours | Search query results per provider |
 | `details` | Dynamic (CloudFront TTL) | Subject details, cast, and signed streaming cookies (auto-adapts to upstream cookie expiration, min 1h, max 24h) |
 | `streams` | Dynamic (Cookie Expiration) | Direct streaming and DASH manifest URLs (auto-adapts to `CloudFront-Policy` and `Edge-Cache-Cookie` expiration timestamp `:t=`, min 1m, max 2h) |
-| `posters` | 7 Days | Downloaded poster image buffers |
+| `captions` | 24 Hours | Aggregated MovieBox external subtitle lists (primary + sibling dubs, background-prefetched on Details load) |
+| `posters` | 30 Days | Downloaded poster image buffers |
 | `tv` | 24 Hours | Remote M3U playlist text snapshots |
 
 ## Durability & Safety

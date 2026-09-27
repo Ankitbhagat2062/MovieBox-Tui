@@ -443,4 +443,34 @@ mod tests {
         assert_eq!(base, "http://172.16.50.4");
         assert_eq!(path, "/movies/action/film.mkv");
     }
+
+    #[tokio::test]
+    async fn test_dhakaflix_streams_extracts_and_parses_video_releases() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let body = r#"{"items":[{"href":"/Movies/Inception.2010.2160p.HEVC.Dual.mkv","size":4294967296},{"href":"/Movies/notes.txt","size":128}]}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        let client = DhakaFlixClient::new();
+        let id = format!("http://{addr}:/Movies/Inception/");
+        let releases = client.streams(&id).await.expect("streams");
+        assert_eq!(releases.len(), 1);
+        assert_eq!(releases[0].filename, "Inception.2010.2160p.HEVC.Dual.mkv");
+        assert_eq!(releases[0].quality.as_deref(), Some("4K"));
+        assert_eq!(releases[0].codec.as_deref(), Some("HEVC"));
+        assert_eq!(releases[0].language.as_deref(), Some("Dual Audio"));
+        assert_eq!(releases[0].size_bytes, Some(4_294_967_296));
+    }
 }

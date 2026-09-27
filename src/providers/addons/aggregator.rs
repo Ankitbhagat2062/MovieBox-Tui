@@ -138,3 +138,84 @@ fn quality_score(quality: Option<&str>) -> u32 {
         _ => 0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn test_aggregate_streams_merges_deduplicates_sorts_and_reports_blocked_torrents() {
+        let listener1 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr1 = listener1.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener1.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let body = r#"{"streams":[
+                    {"name":"AddonA 720p","title":"Movie.720p.mp4\n💾 1.0 GB","url":"https://cdn.example.com/720p.mp4"},
+                    {"name":"AddonA 4K","title":"Movie.2160p.HEVC.mkv\n💾 10.0 GB","url":"https://cdn.example.com/2160p.mkv"}
+                ]}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        let listener2 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr2 = listener2.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener2.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let body = r#"{"streams":[
+                    {"name":"TorrentOnly","title":"P2P Swarm","infoHash":"0123456789abcdef0123456789abcdef01234567"}
+                ]}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        let addons = vec![
+            InstalledAddon {
+                manifest_url: format!("http://{addr1}/manifest.json"),
+                name: "HTTP Addon".to_string(),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                enabled: true,
+                provides_catalog: false,
+                provides_meta: false,
+                provides_stream: true,
+                id_prefixes: vec![],
+                types: vec!["movie".to_string()],
+            },
+            InstalledAddon {
+                manifest_url: format!("http://{addr2}/manifest.json"),
+                name: "P2P Addon".to_string(),
+                version: Some("1.0.0".to_string()),
+                description: None,
+                enabled: true,
+                provides_catalog: false,
+                provides_meta: false,
+                provides_stream: true,
+                id_prefixes: vec![],
+                types: vec!["movie".to_string()],
+            },
+        ];
+
+        let client = AddonClient::new();
+        let (releases, blocked) =
+            aggregate_streams(&client, &addons, "tt1234567", 0, 0, false).await;
+        assert_eq!(blocked, vec!["P2P Addon".to_string()]);
+        assert_eq!(releases.len(), 2);
+        assert_eq!(releases[0].quality.as_deref(), Some("2160p"));
+        assert_eq!(releases[1].quality.as_deref(), Some("720p"));
+    }
+}

@@ -401,4 +401,35 @@ mod tests {
         assert!(client.provider_url("movie/inception-2010").is_ok());
         assert!(client.provider_url("https://evil.com/movie").is_err());
     }
+
+    #[tokio::test]
+    async fn preflight_blocks_loopback_ssrf_and_prioritizes_seekable_mirrors() {
+        let client = FourKHdHubClient::new().expect("client");
+        assert!(
+            client
+                .preflight("http://127.0.0.1:8080/video.mkv", &[])
+                .await
+                .is_err()
+        );
+
+        let mut candidates = [
+            (
+                false,
+                0_u8,
+                "https://r2.dev/unseekable.mkv",
+                "10Gbps Server",
+            ),
+            (false, 4_u8, "https://workers.dev/quota.mkv", "HubCloud"),
+            (
+                true,
+                1_u8,
+                "https://pixeldrain.dev/seekable.mkv",
+                "PixelDrain",
+            ),
+        ];
+        candidates.sort_by_key(|(is_seekable, score, _, _)| (!*is_seekable, *score));
+        assert_eq!(candidates[0].2, "https://pixeldrain.dev/seekable.mkv");
+        assert_eq!(candidates[1].2, "https://r2.dev/unseekable.mkv");
+        assert_eq!(candidates[2].2, "https://workers.dev/quota.mkv");
+    }
 }
