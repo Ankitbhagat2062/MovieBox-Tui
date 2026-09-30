@@ -136,6 +136,9 @@ impl DownloadError {
                 }
             }
             Self::File(error) => format!("File write error: {}.", error.kind()),
+            Self::InvalidRange(reason) if reason.contains("timeout") => {
+                "Connection timed out.".to_string()
+            }
             Self::InvalidRange(_) => "Server returned invalid partial response.".to_string(),
             Self::Incomplete {
                 downloaded,

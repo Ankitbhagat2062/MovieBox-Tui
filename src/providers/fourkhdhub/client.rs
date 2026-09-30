@@ -21,10 +21,35 @@ pub enum FourKHdHubError {
 impl FourKHdHubError {
     pub fn user_message(&self) -> &'static str {
         match self {
-            Self::Network(_) => "Cannot reach 4KHDHub.",
+            Self::Network(err) => {
+                if err.is_timeout() {
+                    "4KHDHub timed out."
+                } else if let Some(status) = err.status() {
+                    match status.as_u16() {
+                        403 => "4KHDHub blocked (HTTP 403).",
+                        404 => "4KHDHub page not found (HTTP 404).",
+                        429 => "4KHDHub rate limited (HTTP 429).",
+                        500..=599 => "4KHDHub server error.",
+                        _ => "Cannot reach 4KHDHub.",
+                    }
+                } else {
+                    "Cannot reach 4KHDHub."
+                }
+            }
             Self::InvalidUrl(_) => "Invalid 4KHDHub URL.",
             Self::Parse(_) => "4KHDHub parse error.",
-            Self::NoPlayableMirror(_) => "Mirrors dead or expired.",
+            Self::NoPlayableMirror(reason) => {
+                let lower = reason.to_ascii_lowercase();
+                if lower.contains("timed out") || lower.contains("timeout") {
+                    "4KHDHub mirror probe timed out."
+                } else if lower.contains("quota") {
+                    "4KHDHub mirror quota exceeded."
+                } else if lower.contains("expired") {
+                    "4KHDHub mirror link expired."
+                } else {
+                    "No working 4KHDHub mirrors found."
+                }
+            }
         }
     }
 }
@@ -148,7 +173,7 @@ impl FourKHdHubClient {
 
         if unique_candidates.is_empty() {
             return Err(FourKHdHubError::NoPlayableMirror(
-                "Mirrors for this release are dead or expired on 4KHDHub. Select another release (e.g. 1080p) or press Ctrl+P for MovieBox.".into(),
+                "no working mirror links extracted".into(),
             ));
         }
 
@@ -219,7 +244,7 @@ impl FourKHdHubClient {
             release.filename
         );
         Err(FourKHdHubError::NoPlayableMirror(
-            "Mirrors for this release are dead or expired on 4KHDHub. Select another release (e.g. 1080p) or press Ctrl+P for MovieBox.".into(),
+            "all candidate mirrors failed preflight".into(),
         ))
     }
 

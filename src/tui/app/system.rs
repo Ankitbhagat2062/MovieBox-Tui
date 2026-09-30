@@ -696,7 +696,7 @@ impl App {
                         let trimmed = rest.trim_start_matches(':').trim();
                         ("4KHDHub Stream Unavailable", trimmed)
                     } else {
-                        ("Operation failed", body)
+                        ("Error", body)
                     };
                     self.state
                         .notify(NotificationKind::Error, title, clean_body);
@@ -705,11 +705,9 @@ impl App {
                     self.state
                         .notify(NotificationKind::Warning, "Notice", body.trim());
                 } else {
-                    if self.state.active_screen != crate::tui::state::Screen::Home
-                        || self.state.addon_manager_popup
-                    {
+                    if self.state.addon_manager_popup {
                         self.state
-                            .notify(NotificationKind::Info, "Status", msg.clone());
+                            .notify(NotificationKind::Info, "Addons", msg.clone());
                     }
                     self.state.set_status_default(msg);
                 }
@@ -825,11 +823,10 @@ impl App {
                 self.state.is_updating = true;
                 self.state.update_available = None;
                 self.state.update_progress_msg = Some("Starting self-update...".to_string());
-                self.state.set_status_long("Starting self-update...");
                 self.state.notify(
                     NotificationKind::Info,
                     "Self-Update",
-                    "Downloading release artifact and verifying checksum...",
+                    "Downloading and verifying release...",
                 );
 
                 let cached_release = self.state.update_release.clone();
@@ -881,12 +878,10 @@ impl App {
                 self.state.update_progress_msg = None;
                 match result {
                     Ok(crate::updater::SelfUpdateOutcome::Success) => {
-                        self.state
-                            .set_status_long("Update successful! Restarting...");
                         self.state.notify(
                             NotificationKind::Success,
                             "Update Installed",
-                            "MovieBox-Tui was updated successfully. Restarting process...",
+                            "Restarting MovieBox-Tui...",
                         );
 
                         crossterm::terminal::disable_raw_mode().ok();
@@ -907,12 +902,10 @@ impl App {
                         std::process::exit(0);
                     }
                     Ok(crate::updater::SelfUpdateOutcome::RequiresManualUpgrade(msg)) => {
-                        self.state.set_status(msg.clone(), 300);
                         self.state
-                            .notify(NotificationKind::Warning, "Manual Update Required", msg);
+                            .notify(NotificationKind::Warning, "Manual Update", msg);
                     }
                     Err(err) => {
-                        self.state.set_status_long(format!("Update failed: {err}"));
                         self.state
                             .notify(NotificationKind::Error, "Update Failed", err);
                     }
@@ -1052,7 +1045,7 @@ mod tests {
 
         let info_notif = app.state.notifications.back().expect("info toast");
         assert_eq!(info_notif.kind, NotificationKind::Info);
-        assert_eq!(info_notif.title, "Status");
+        assert_eq!(info_notif.title, "Addons");
         assert_eq!(info_notif.message, "Installed Cinemeta v1.0.0");
     }
 }

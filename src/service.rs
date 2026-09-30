@@ -392,15 +392,22 @@ impl MovieBoxService {
 
         let response = tokio::time::timeout(std::time::Duration::from_secs(8), request.send())
             .await
-            .map_err(|_| "Subtitle download timed out".to_string())?
-            .map_err(|e| format!("Failed to request subtitle: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("Subtitle response status error: {e}"))?;
+            .map_err(|_| "timed out".to_string())?
+            .map_err(|e| {
+                if e.is_timeout() {
+                    "timed out".to_string()
+                } else {
+                    "connection failed".to_string()
+                }
+            })?;
+        if !response.status().is_success() {
+            return Err(format!("HTTP {}", response.status().as_u16()));
+        }
 
         let bytes = response
             .bytes()
             .await
-            .map_err(|e| format!("Failed to read subtitle bytes: {e}"))?;
+            .map_err(|_| "read error".to_string())?;
 
         let extension = subtitle_extension_from_url(url);
         let base_dir = resolve_subtitle_dir();
@@ -424,7 +431,7 @@ impl MovieBoxService {
         let path = base_dir.join(format!("{file_stem}.{extension}"));
         tokio::fs::write(&path, bytes)
             .await
-            .map_err(|e| format!("Failed to write subtitle file: {e}"))?;
+            .map_err(|e| format!("write error ({})", e.kind()))?;
 
         Ok(path)
     }

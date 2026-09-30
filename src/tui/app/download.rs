@@ -188,44 +188,55 @@ impl App {
                 let result =
                     tokio::time::timeout(std::time::Duration::from_secs(30), sub_req.send()).await;
                 match result {
-                    Ok(Ok(response)) => match response.error_for_status() {
-                        Ok(response) => match response.bytes().await {
-                            Ok(bytes) => {
-                                if tokio::fs::write(subtitle_path, bytes).await.is_err() {
+                    Ok(Ok(response)) => {
+                        let status = response.status();
+                        if !status.is_success() {
+                            sender
+                                .send(Action::SetStatus(format!(
+                                    "Warning: Subtitle unavailable (HTTP {}).",
+                                    status.as_u16()
+                                )))
+                                .ok();
+                        } else {
+                            match response.bytes().await {
+                                Ok(bytes) => {
+                                    if let Err(io_err) =
+                                        tokio::fs::write(subtitle_path, bytes).await
+                                    {
+                                        sender
+                                            .send(Action::SetStatus(format!(
+                                                "Warning: Subtitle save failed ({}).",
+                                                io_err.kind()
+                                            )))
+                                            .ok();
+                                    }
+                                }
+                                Err(_) => {
                                     sender
                                         .send(Action::SetStatus(
-                                            "Error: Subtitle save failed.".to_string(),
+                                            "Warning: Subtitle read interrupted.".to_string(),
                                         ))
                                         .ok();
                                 }
                             }
-                            Err(_) => {
-                                sender
-                                    .send(Action::SetStatus(
-                                        "Error: Subtitle download failed.".to_string(),
-                                    ))
-                                    .ok();
-                            }
-                        },
-                        Err(_) => {
-                            sender
-                                .send(Action::SetStatus(
-                                    "Error: Subtitle download failed.".to_string(),
-                                ))
-                                .ok();
                         }
-                    },
-                    Ok(Err(_)) => {
+                    }
+                    Ok(Err(req_err)) => {
+                        let reason = if req_err.is_timeout() {
+                            "timed out"
+                        } else {
+                            "connection failed"
+                        };
                         sender
-                            .send(Action::SetStatus(
-                                "Error: Subtitle download failed.".to_string(),
-                            ))
+                            .send(Action::SetStatus(format!(
+                                "Warning: Subtitle download {reason}."
+                            )))
                             .ok();
                     }
                     Err(_) => {
                         sender
                             .send(Action::SetStatus(
-                                "Error: Subtitle download timed out.".to_string(),
+                                "Warning: Subtitle download timed out.".to_string(),
                             ))
                             .ok();
                     }
@@ -233,15 +244,22 @@ impl App {
             }
 
             if is_dash {
-                let Some(ytdlp_bin) = crate::player::find_in_path("yt-dlp") else {
-                    sender
-                        .send(Action::DownloadFailed(yt_dlp_missing_guidance()))
-                        .ok();
+                let has_ytdlp = crate::player::find_in_path("yt-dlp");
+                let has_ffmpeg = crate::player::find_in_path("ffmpeg");
+                let Some(ytdlp_bin) = has_ytdlp else {
+                    let msg = if has_ffmpeg.is_none() {
+                        "Missing yt-dlp and ffmpeg for DASH download."
+                    } else {
+                        "Missing yt-dlp for DASH download."
+                    };
+                    sender.send(Action::DownloadFailed(msg.to_string())).ok();
                     return;
                 };
-                if crate::player::find_in_path("ffmpeg").is_none() {
+                if has_ffmpeg.is_none() {
                     sender
-                        .send(Action::DownloadFailed(yt_dlp_missing_guidance()))
+                        .send(Action::DownloadFailed(
+                            "Missing ffmpeg for DASH stream muxing.".to_string(),
+                        ))
                         .ok();
                     return;
                 }
@@ -297,7 +315,8 @@ impl App {
                     Err(err) => {
                         sender
                             .send(Action::DownloadFailed(format!(
-                                "Failed to start yt-dlp: {err}"
+                                "yt-dlp launch failed ({}).",
+                                err.kind()
                             )))
                             .ok();
                         return;
@@ -414,11 +433,8 @@ impl App {
                                 .cloned();
                             drop(lines);
                             let err_msg = match last_err {
-                                Some(e) if e.contains("ffmpeg") || e.contains("ffprobe") => {
-                                    format!("{e}\n{}", yt_dlp_missing_guidance())
-                                }
-                                Some(e) => e,
-                                None => format!("yt-dlp exited with status {s}"),
+                                Some(e) => clean_ytdlp_error(&e),
+                                None => format!("yt-dlp exited ({s})."),
                             };
                             sender.send(Action::DownloadFailed(err_msg)).ok();
                         }
@@ -806,10 +822,14 @@ impl App {
             Action::DownloadCompleted(path) => {
                 self.state.download_progress = Some(100.0);
                 self.state.download_status = Some("Completed".into());
+                let display_name = std::path::Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or(path);
                 self.state.notify(
                     NotificationKind::Success,
-                    "Download complete",
-                    format!("Saved to {path}"),
+                    "Download Complete",
+                    format!("Saved {display_name}"),
                 );
                 let sender = self.action_sender.clone();
                 tokio::spawn(async move {
@@ -827,12 +847,12 @@ impl App {
                     let completed = total.saturating_sub(remaining + 1);
                     self.state.notify(
                         NotificationKind::Error,
-                        "Season download halted",
-                        format!("{completed}/{total} files finished before error: {error}"),
+                        "Season Download Halted",
+                        format!("{completed}/{total} done: {error}"),
                     );
                 } else {
                     self.state
-                        .notify(NotificationKind::Error, "Download failed", error);
+                        .notify(NotificationKind::Error, "Download Failed", error);
                 }
                 self.state.download_queue.clear();
                 self.state.download_queue_total = 0;
@@ -847,14 +867,18 @@ impl App {
                     let completed = total.saturating_sub(remaining + 1);
                     self.state.notify(
                         NotificationKind::Warning,
-                        "Season download paused",
-                        format!("{completed}/{total} files finished. Resume with {path}.part"),
+                        "Season Download Paused",
+                        format!("{completed}/{total} finished."),
                     );
                 } else {
+                    let file_name = std::path::Path::new(&path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or(path);
                     self.state.notify(
                         NotificationKind::Warning,
-                        "Download paused",
-                        format!("Start again to resume {path}.part"),
+                        "Download Paused",
+                        format!("Paused {file_name}"),
                     );
                 }
                 self.state.download_queue.clear();
@@ -1031,19 +1055,34 @@ async fn prepare_target_dir(
     }
     Ok(())
 }
-pub(crate) fn yt_dlp_missing_guidance() -> String {
-    if crate::updater::artifact::is_termux_environment() {
-        "DASH streams require yt-dlp & ffmpeg.\nRun: pkg install yt-dlp ffmpeg".to_string()
-    } else if cfg!(target_os = "macos") {
-        "DASH streams require yt-dlp & ffmpeg.\nRun: brew install yt-dlp ffmpeg".to_string()
-    } else if cfg!(target_os = "windows") {
-        "DASH streams require yt-dlp & ffmpeg.\nRun: winget install yt-dlp.yt-dlp Gyan.FFmpeg"
-            .to_string()
-    } else if cfg!(target_os = "linux") {
-        "DASH streams require yt-dlp & ffmpeg.\nInstall via system package manager".to_string()
+pub(crate) fn clean_ytdlp_error(raw: &str) -> String {
+    let trimmed = raw.trim().trim_start_matches("ERROR:").trim();
+    let stripped = if let Some(rest) = trimmed.strip_prefix('[')
+        && let Some((_, after_bracket)) = rest.split_once(']')
+    {
+        let after = after_bracket.trim();
+        if let Some((_, msg)) = after.split_once(": ") {
+            msg.trim()
+        } else {
+            after
+        }
     } else {
-        "DASH streams require yt-dlp & ffmpeg.".to_string()
+        trimmed
+    };
+    let lower = stripped.to_ascii_lowercase();
+    if lower.contains("http error 403") || lower.contains("403: forbidden") {
+        return "Server refused download (HTTP 403).".to_string();
     }
+    if lower.contains("http error 404") || lower.contains("404: not found") {
+        return "Stream file not found (HTTP 404).".to_string();
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return "Connection timed out.".to_string();
+    }
+    if lower.contains("ffmpeg") || lower.contains("ffprobe") {
+        return "Missing ffmpeg for DASH stream muxing.".to_string();
+    }
+    crate::tui::text::truncate_width(stripped, 64).into_owned()
 }
 
 pub(crate) fn parse_ytdlp_progress(line: &str) -> Option<(f64, String)> {
@@ -1234,13 +1273,19 @@ mod tests {
     }
 
     #[test]
-    fn test_yt_dlp_missing_guidance_contains_platform_hint() {
-        let guidance = super::yt_dlp_missing_guidance();
-        assert!(guidance.contains("DASH streams require yt-dlp & ffmpeg"));
-        #[cfg(target_os = "macos")]
-        assert!(guidance.contains("brew install yt-dlp ffmpeg"));
-        #[cfg(target_os = "windows")]
-        assert!(guidance.contains("winget install yt-dlp.yt-dlp Gyan.FFmpeg"));
+    fn test_clean_ytdlp_error_extracts_concise_reason() {
+        assert_eq!(
+            super::clean_ytdlp_error(
+                "ERROR: [generic] index: Unable to download webpage: HTTP Error 403: Forbidden"
+            ),
+            "Server refused download (HTTP 403)."
+        );
+        assert_eq!(
+            super::clean_ytdlp_error(
+                "ERROR: You have requested merging of multiple formats but ffmpeg is not installed"
+            ),
+            "Missing ffmpeg for DASH stream muxing."
+        );
     }
 
     #[tokio::test]

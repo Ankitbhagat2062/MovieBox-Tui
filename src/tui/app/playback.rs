@@ -89,22 +89,13 @@ impl App {
                 self.state.is_resolving_playback = false;
                 self.state.pending_playback_source = None;
                 let chosen_name = chosen.label();
-                let body = if !compatible_alternatives.is_empty() {
-                    let alternatives_str = compatible_alternatives
-                        .iter()
-                        .map(|k| k.label())
-                        .collect::<Vec<_>>()
-                        .join(" or ");
+                let body = if let Some(first) = compatible_alternatives.first() {
                     format!(
-                        "{chosen_name} lacks header support. Switch to {alternatives_str} in /settings."
+                        "{chosen_name} lacks header support. Switch to {} in /settings.",
+                        first.label()
                     )
                 } else {
-                    let supported_str = crate::player::header_capable_players()
-                        .iter()
-                        .map(|k| k.label())
-                        .collect::<Vec<_>>()
-                        .join(" or ");
-                    format!("{chosen_name} lacks header support. Install {supported_str}.")
+                    format!("{chosen_name} lacks custom header support.")
                 };
                 self.state.notify(
                     NotificationKind::Warning,
@@ -115,15 +106,10 @@ impl App {
             PlaybackResolution::NoCompatiblePlayer { available: _ } => {
                 self.state.is_resolving_playback = false;
                 self.state.pending_playback_source = None;
-                let supported_str = crate::player::header_capable_players()
-                    .iter()
-                    .map(|k| k.label())
-                    .collect::<Vec<_>>()
-                    .join(" or ");
                 self.state.notify(
                     NotificationKind::Error,
-                    "Incompatible Media Player",
-                    format!("Headers unsupported. Install {supported_str}."),
+                    "Incompatible Player",
+                    "Installed player lacks custom stream header support.".to_string(),
                 );
             }
             PlaybackResolution::NoPlayersInstalled => {
@@ -142,14 +128,13 @@ impl App {
                     )
                 } else if crate::updater::artifact::is_termux_environment() {
                     (
-                        "No Media Player Found",
-                        "Run 'pkg install termux-tools' and install an Android video player."
-                            .to_string(),
+                        "No Media Player",
+                        "No Android video player or termux-tools detected.".to_string(),
                     )
                 } else {
                     (
-                        "No Media Player Found",
-                        "Install mpv, IINA, or VLC to enable video playback.".to_string(),
+                        "No Media Player",
+                        "No supported media player (mpv, IINA, VLC) found.".to_string(),
                     )
                 };
                 self.state.notify(NotificationKind::Error, title, message);
@@ -349,18 +334,17 @@ impl App {
                             temporary_subtitle = Some(path);
                         }
                     }
-                    Err(_) => {
+                    Err(err) => {
                         log::warn!(
-                            "subtitle download failed for {:?} player (url was {})",
+                            "subtitle download failed for {:?} player ({err}, url was {})",
                             kind,
                             crate::logging::sanitize_url(url)
                         );
                         if !matches!(kind, crate::tui::state::PlayerKind::Mpv) {
                             local_subtitle = None;
-                            let _ = sender.send(Action::SetStatus(
-                                "Warning: External subtitle unavailable; playing stream directly."
-                                    .to_string(),
-                            ));
+                            let _ = sender.send(Action::SetStatus(format!(
+                                "Warning: Subtitle unavailable ({err}); playing without subs."
+                            )));
                         }
                     }
                 }
@@ -436,7 +420,7 @@ impl App {
                             log::error!("Failed to spawn stream proxy sidecar: {err}");
                             let _ = sender.send(Action::PlayerExited);
                             let _ = sender.send(Action::SetStatus(format!(
-                                "Error: Stream proxy initialization failed: {err}"
+                                "Error: Stream proxy failed ({err})"
                             )));
                             return;
                         }
@@ -729,14 +713,47 @@ fn is_user_quit(status: &std::process::ExitStatus) -> bool {
 fn clean_player_error(code: Option<i32>, signal: Option<i32>, stderr: &str) -> String {
     let trimmed = stderr.trim();
     if !trimmed.is_empty() {
-        let bounded = if trimmed.len() > 512 {
-            let mut end = 512;
-            while end > 0 && !trimmed.is_char_boundary(end) {
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("403 forbidden") || lower.contains("http error 403") {
+            return "Stream forbidden by server (HTTP 403).".to_string();
+        }
+        if lower.contains("404 not found") || lower.contains("http error 404") {
+            return "Stream link not found (HTTP 404).".to_string();
+        }
+        if lower.contains("410 gone") || lower.contains("http error 410") {
+            return "Stream link expired (HTTP 410).".to_string();
+        }
+        if lower.contains("connection refused") {
+            return "Stream connection refused.".to_string();
+        }
+        if lower.contains("timed out") || lower.contains("timeout") {
+            return "Stream connection timed out.".to_string();
+        }
+        if lower.contains("unrecognized option") || lower.contains("unknown option") {
+            return "Unsupported player CLI option.".to_string();
+        }
+        let best_line = trimmed
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|l| {
+                !l.is_empty()
+                    && (l.contains("error")
+                        || l.contains("Error")
+                        || l.contains("ERROR")
+                        || l.contains("failed")
+                        || l.contains("Failed"))
+            })
+            .or_else(|| trimmed.lines().rev().map(str::trim).find(|l| !l.is_empty()))
+            .unwrap_or(trimmed);
+        let bounded = if best_line.len() > 120 {
+            let mut end = 120;
+            while end > 0 && !best_line.is_char_boundary(end) {
                 end -= 1;
             }
-            &trimmed[..end]
+            &best_line[..end]
         } else {
-            trimmed
+            best_line
         };
         return bounded.to_string();
     }
@@ -1075,29 +1092,31 @@ impl App {
                 } else if is_termux_tool_crash {
                     (
                         "Termux Setup",
-                        "Run 'pkg install termux-tools'.".to_string(),
+                        "Missing termux-tools package in Termux.".to_string(),
                     )
                 } else {
+                    let has_specific =
+                        !error_msg.is_empty() && !error_msg.starts_with("Player exited");
                     match code {
                         Some(2) => (
-                            "Stream Dead",
-                            if !error_msg.is_empty() && !error_msg.starts_with("Player exited") {
+                            "Stream Error",
+                            if has_specific {
                                 error_msg
                             } else {
-                                "Link expired or unreachable.".to_string()
+                                "Player failed to open stream (exit code 2).".to_string()
                             },
                         ),
                         Some(1) => (
                             "Player Error",
-                            if error_msg.is_empty() || error_msg.starts_with("Player exited") {
-                                "Check player configuration.".to_string()
-                            } else {
+                            if has_specific {
                                 error_msg
+                            } else {
+                                "Player exited with error code 1.".to_string()
                             },
                         ),
                         Some(c) => (
                             "Playback Failed",
-                            if !error_msg.is_empty() && !error_msg.starts_with("Player exited") {
+                            if has_specific {
                                 error_msg
                             } else {
                                 format!("Player exited ({c}).")
@@ -1105,7 +1124,7 @@ impl App {
                         ),
                         None => (
                             "Playback Failed",
-                            if !error_msg.is_empty() && !error_msg.starts_with("Player exited") {
+                            if has_specific {
                                 error_msg
                             } else {
                                 "Player terminated.".to_string()
@@ -1113,8 +1132,6 @@ impl App {
                         ),
                     }
                 };
-
-                self.state.set_status(format!("{title}: {message}"), 300);
 
                 self.state.notify(NotificationKind::Error, title, message);
             }
@@ -1153,14 +1170,14 @@ mod tests {
     }
     #[test]
     fn player_exit_code_interpretation() {
-        let code = Some(2);
-        let msg = match code {
-            Some(2) => ("Stream Dead", "Link expired or unreachable."),
-            Some(1) => ("Player Error", "Check player configuration."),
-            _ => ("Playback Failed", "Player exited."),
-        };
-        assert_eq!(msg.0, "Stream Dead");
-        assert_eq!(msg.1, "Link expired or unreachable.");
+        assert_eq!(
+            clean_player_error(Some(2), None, "ffmpeg/http: HTTP error 403 Forbidden"),
+            "Stream forbidden by server (HTTP 403)."
+        );
+        assert_eq!(
+            clean_player_error(Some(2), None, "Connection timed out"),
+            "Stream connection timed out."
+        );
     }
 
     #[test]
@@ -1500,7 +1517,10 @@ mod tests {
             .back()
             .expect("expected notification");
         assert_eq!(last_notification.title, "Termux Setup");
-        assert_eq!(last_notification.message, "Run 'pkg install termux-tools'.");
+        assert_eq!(
+            last_notification.message,
+            "Missing termux-tools package in Termux."
+        );
     }
 
     #[tokio::test]
@@ -1575,7 +1595,10 @@ mod tests {
             .back()
             .expect("expected notification");
         assert_eq!(last_notification.title, "Termux Setup");
-        assert_eq!(last_notification.message, "Run 'pkg install termux-tools'.");
+        assert_eq!(
+            last_notification.message,
+            "Missing termux-tools package in Termux."
+        );
     }
 
     #[tokio::test]

@@ -114,12 +114,10 @@ impl App {
                     KeyCode::Char('b') | KeyCode::Char('B')
                         if env == crate::updater::apply::InstallationEnvironment::Homebrew =>
                     {
-                        self.state
-                            .set_status_short("Run: brew upgrade moviebox-tui");
                         self.state.notify(
                             crate::tui::overlay::NotificationKind::Info,
-                            "Homebrew Upgrade",
-                            "Run: brew upgrade moviebox-tui",
+                            "Homebrew Update",
+                            "Installed via Homebrew.",
                         );
                         self.state.update_available = None;
                         return None;
@@ -127,12 +125,10 @@ impl App {
                     KeyCode::Char('s') | KeyCode::Char('S')
                         if env == crate::updater::apply::InstallationEnvironment::Scoop =>
                     {
-                        self.state
-                            .set_status_short("Run: scoop update moviebox-tui");
                         self.state.notify(
                             crate::tui::overlay::NotificationKind::Info,
-                            "Scoop Upgrade",
-                            "Run: scoop update moviebox-tui",
+                            "Scoop Update",
+                            "Installed via Scoop.",
                         );
                         self.state.update_available = None;
                         return None;

@@ -330,21 +330,17 @@ impl App {
                     if col < layout.update_btn_end_x {
                         match env {
                             crate::updater::apply::InstallationEnvironment::Homebrew => {
-                                self.state
-                                    .set_status_short("Run: brew upgrade moviebox-tui");
                                 self.state.notify(
                                     NotificationKind::Info,
-                                    "Homebrew Upgrade",
-                                    "Run: brew upgrade moviebox-tui",
+                                    "Homebrew Update",
+                                    "Installed via Homebrew.",
                                 );
                             }
                             crate::updater::apply::InstallationEnvironment::Scoop => {
-                                self.state
-                                    .set_status_short("Run: scoop update moviebox-tui");
                                 self.state.notify(
                                     NotificationKind::Info,
-                                    "Scoop Upgrade",
-                                    "Run: scoop update moviebox-tui",
+                                    "Scoop Update",
+                                    "Installed via Scoop.",
                                 );
                             }
                             crate::updater::apply::InstallationEnvironment::DirectReplace
