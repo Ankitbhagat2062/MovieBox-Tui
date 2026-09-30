@@ -1568,7 +1568,8 @@ fn vlc_subtitle_path(path: &str) -> String {
     }
     let bytes = path.as_bytes();
     let is_windows_drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
-    if is_windows_drive || path.starts_with(r"\\") {
+    let is_unc = path.starts_with(r"\\") || path.starts_with("//");
+    if is_windows_drive || is_unc {
         path.replace('/', r"\")
     } else {
         path.to_string()

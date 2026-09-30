@@ -317,7 +317,7 @@ fn test_homebrew_detection_and_safe_refusal() {
     );
     assert!(is_homebrew_managed(linuxbrew_path));
 
-    let standard_user_path = std::path::Path::new("/Users/samir/.local/bin/moviebox-tui");
+    let standard_user_path = std::path::Path::new("/usr/local/bin/moviebox-tui");
     assert!(!is_homebrew_managed(standard_user_path));
 }
 
