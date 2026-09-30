@@ -119,7 +119,8 @@ impl App {
 
         let mut client_builder = crate::net::http_client_builder_base()
             .connect_timeout(std::time::Duration::from_secs(15))
-            .tcp_keepalive(std::time::Duration::from_secs(30));
+            .tcp_keepalive(std::time::Duration::from_secs(30))
+            .pool_max_idle_per_host(32);
 
         let mut has_custom_ua = false;
         let mut header_map = reqwest::header::HeaderMap::new();
@@ -289,7 +290,7 @@ impl App {
                     .arg("--newline")
                     .arg("--part")
                     .arg("--concurrent-fragments")
-                    .arg("8")
+                    .arg("32")
                     .arg("--http-chunk-size")
                     .arg("95K")
                     .arg("--fragment-retries")

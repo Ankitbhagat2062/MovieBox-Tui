@@ -39,6 +39,6 @@ MovieBox DASH streams require `yt-dlp` and `ffmpeg` to download and mux adaptive
 - **Android (Termux)**: `pkg install yt-dlp ffmpeg`
 - **Linux**: Install `yt-dlp` and `ffmpeg` via system package manager.
 
-The downloader checks both binaries before starting the transfer and reports which binary is missing if either is absent. Fragments are pulled with `--concurrent-fragments 8` and `--http-chunk-size 95K` (keeping individual range sub-requests under Tengine's `limit_rate_after 96k` throttle boundary) alongside retry bounds (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`). Subprocess errors during transfer report the underlying `yt-dlp` diagnostic in the failure notification.
+The downloader checks both binaries before starting the transfer and reports which binary is missing if either is absent. Fragments are pulled with `--concurrent-fragments 32` and `--http-chunk-size 95K` (keeping individual range sub-requests under Tengine's `limit_rate_after 96k` throttle boundary) alongside retry bounds (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`). Subprocess errors during transfer report the underlying `yt-dlp` diagnostic in the failure notification.
 
-All other providers (4KHDHub, Dramachi, BDIX, DhakaFlix, CircleFTP, Stremio Addons, TV mode) download directly through the internal multi-segment HTTP engine (4 to 12 concurrent workers writing in-place to the pre-allocated `.part` file).
+All other providers (4KHDHub, Dramachi, BDIX, DhakaFlix, CircleFTP, Stremio Addons, TV mode) download directly through the internal multi-segment HTTP engine (4 to 16 concurrent workers with 1 MiB write buffers writing in-place to the pre-allocated `.part` file).

@@ -15,8 +15,8 @@ use thiserror::Error;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 const MAX_ATTEMPTS: usize = 4;
-const SEGMENT_THRESHOLD: u64 = 16 * 1024 * 1024;
-const MAX_SEGMENTS: usize = 12;
+const SEGMENT_THRESHOLD: u64 = 8 * 1024 * 1024;
+const MAX_SEGMENTS: usize = 16;
 pub const DEFAULT_STREAM_NAME: &str = "MovieBox-Tui_Stream";
 
 pub fn safe_file_stem(value: &str) -> String {
@@ -205,6 +205,8 @@ where
             if let Some(validator) = metadata.etag.as_ref().or(metadata.last_modified.as_ref()) {
                 request = request.header(IF_RANGE, validator);
             }
+        } else if !segmented_disabled {
+            request = request.header(RANGE, "bytes=0-0");
         }
 
         let response = match request.send().await {
@@ -285,8 +287,12 @@ where
                     result => return result,
                 }
             }
+            if offset == 0 && response.status() == StatusCode::PARTIAL_CONTENT {
+                drop(response);
+                segmented_disabled = true;
+                continue;
+            }
         }
-
         let response_total = if response.status() == StatusCode::PARTIAL_CONTENT {
             let content_range = response
                 .headers()
@@ -568,6 +574,12 @@ where
         });
     }
 
+    let final_file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(partial_path)
+        .await?;
+    final_file.sync_data().await?;
+    drop(final_file);
     if file_len(partial_path).await != total {
         return Err(DownloadError::Incomplete {
             downloaded: file_len(partial_path).await,
@@ -661,7 +673,7 @@ async fn download_segment(
         raw_file
             .seek(std::io::SeekFrom::Start(requested_start))
             .await?;
-        let mut file = tokio::io::BufWriter::with_capacity(512 * 1024, raw_file);
+        let mut file = tokio::io::BufWriter::with_capacity(1024 * 1024, raw_file);
         let mut response = response;
         let mut written = existing;
         let mut unbatched_bytes = 0u64;
@@ -683,10 +695,10 @@ async fn download_segment(
                     written += bytes as u64;
                     segment_written.store(written, Ordering::Relaxed);
                     unbatched_bytes += bytes as u64;
-                    if unbatched_bytes >= 256 * 1024
-                        || last_progress_send.elapsed() >= Duration::from_millis(100)
+                    if unbatched_bytes >= 512 * 1024
+                        || last_progress_send.elapsed() >= Duration::from_millis(120)
                     {
-                        let _ = progress.send((unbatched_bytes, attempt)).await;
+                        let _ = progress.try_send((unbatched_bytes, attempt));
                         unbatched_bytes = 0;
                         last_progress_send = Instant::now();
                     }
@@ -695,7 +707,6 @@ async fn download_segment(
                             let _ = progress.send((unbatched_bytes, attempt)).await;
                         }
                         file.flush().await?;
-                        file.get_mut().sync_data().await?;
                         return Ok(());
                     }
                 }
@@ -741,12 +752,12 @@ async fn download_segment(
 }
 
 fn segment_count(total: u64) -> usize {
-    if total < 64 * 1024 * 1024 {
+    if total < 32 * 1024 * 1024 {
         4
-    } else if total < 256 * 1024 * 1024 {
-        6
-    } else if total < 1024 * 1024 * 1024 {
+    } else if total < 128 * 1024 * 1024 {
         8
+    } else if total < 512 * 1024 * 1024 {
+        12
     } else {
         MAX_SEGMENTS
     }
@@ -911,10 +922,10 @@ mod tests {
 
     #[test]
     fn test_segment_count_scaling() {
-        assert_eq!(segment_count(32 * 1024 * 1024), 4);
-        assert_eq!(segment_count(120 * 1024 * 1024), 6);
-        assert_eq!(segment_count(500 * 1024 * 1024), 8);
-        assert_eq!(segment_count(2 * 1024 * 1024 * 1024), 12);
+        assert_eq!(segment_count(16 * 1024 * 1024), 4);
+        assert_eq!(segment_count(64 * 1024 * 1024), 8);
+        assert_eq!(segment_count(256 * 1024 * 1024), 12);
+        assert_eq!(segment_count(1024 * 1024 * 1024), 16);
     }
 
     #[tokio::test]

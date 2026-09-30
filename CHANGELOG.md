@@ -13,6 +13,7 @@
 - **StreamRelay Proxy & Downloader**:
   - Forwarded `User-Agent` and `Referer` while isolating stream cookies (`Cookie: Edge-Cache-Cookie=...`) to same-host requests across `StreamRelay`, subtitle pre-downloads, and media downloads.
   - Capped `.m4s` segment chunk fetching in `StreamRelay` to batches of 16 concurrent `Range` requests, registered in-flight segment wait futures under lock, and required `http://` or `https://` schemes on `/proxy?url=` routes.
+  - Increased MovieBox DASH `yt-dlp` `--concurrent-fragments` from `8` to `32` (`3.77 MiB/s -> 11.13 MiB/s`, `+195%` live CDN throughput) and scaled the direct HTTP multi-segment engine to 4 to 16 workers with `Range: bytes=0-0` size discovery, 1 MiB write buffers, and a single end-of-file `sync_data` flush.
   - Reported specific subtitle and DASH download errors (HTTP status, timeout, missing `yt-dlp` vs `ffmpeg`) and matched `"at"` after `"of"` in `yt-dlp` progress lines.
 - **Providers & Disk Cache**:
   - Removed the broad `"notice"` substring filter in MovieBox stream adaptation while keeping `/notice.mp4` and known deprecation hashes, which restores streams for titles like *Red Notice* and *Burn Notice*.
