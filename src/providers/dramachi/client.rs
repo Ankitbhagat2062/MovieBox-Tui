@@ -556,19 +556,37 @@ fn extract_leading_season_number(name: &str) -> Option<usize> {
 }
 
 fn parse_episode_number(f_title: &str) -> Option<usize> {
-    let upper = f_title.to_ascii_uppercase();
-    if let Some(pos) = upper.rfind('E') {
-        let slice = &upper[pos + 1..];
-        let num_str: String = slice.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(num) = num_str.parse::<usize>() {
-            return Some(num);
+    let cleaned = clean_episode_title(f_title);
+    let upper = cleaned.to_ascii_uppercase();
+    for prefix in ["EPISODE", "EP.", "EP", "E"] {
+        let mut search_from = 0;
+        while let Some(rel_pos) = upper[search_from..].find(prefix) {
+            let pos = search_from + rel_pos;
+            let prev_char = upper[..pos].chars().next_back();
+            let valid_boundary = match prev_char {
+                None => true,
+                Some(ch) => !ch.is_alphabetic() || (prefix == "E" && ch.is_ascii_digit()),
+            };
+            let after = &upper[pos + prefix.len()..];
+            let after_trimmed = after.trim_start_matches([' ', '-', '.', '_']);
+            let num_str: String = after_trimmed
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if valid_boundary
+                && !num_str.is_empty()
+                && let Ok(num) = num_str.parse::<usize>()
+            {
+                return Some(num);
+            }
+            search_from = pos + prefix.len();
         }
     }
 
-    if let Some(last_token) = f_title.split_whitespace().last() {
-        if let Ok(num) = last_token.parse::<usize>() {
-            return Some(num);
-        }
+    if let Some(last_token) = cleaned.split_whitespace().last()
+        && let Ok(num) = last_token.parse::<usize>()
+    {
+        return Some(num);
     }
 
     None

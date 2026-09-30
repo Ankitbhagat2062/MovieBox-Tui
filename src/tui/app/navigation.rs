@@ -117,6 +117,7 @@ impl App {
             || self.state.is_loading
             || self.state.search_results.is_empty()
             || self.state.active_browse_preset.is_some()
+            || self.state.active_addon_catalog.is_some()
             || self.state.search_query.trim().starts_with('/')
             || (!self.state.is_homepage_mode && self.state.search_exhausted)
         {
@@ -302,7 +303,8 @@ impl App {
                 self.state.set_status_short("Loading streams...");
                 self.state.pending_episode_fetch = None;
                 let sender = self.action_sender.clone();
-                let context = self.request_context();
+                let mut context = self.request_context();
+                context.provider = self.provider_for_subject(&id);
                 let request_id = self.state.active_resource_request;
                 self.request_tasks.cancel_episode_prefetch();
                 self.request_tasks.episode_prefetch = Some(tokio::spawn(async move {
@@ -361,6 +363,10 @@ impl App {
                     self.state.subtitle_list.clear();
                     self.state.subtitle_list_state.select(None);
                     if is_dl {
+                        self.state.is_waiting_for_download_stream = false;
+                        self.state.download_queue.clear();
+                        self.state.download_queue_total = 0;
+                        self.state.season_subtitle_preference = None;
                         self.state
                             .set_status_default("Download subtitle selection cancelled.");
                     } else {
@@ -439,6 +445,7 @@ impl App {
                         self.request_tasks.cancel_streams();
                         self.request_tasks.cancel_stream_pool_init();
                         self.request_tasks.cancel_episode_prefetch();
+                        self.request_tasks.cancel_playback_resolve();
                         self.state.in_flight_posters.clear();
                         self.state.active_preview_request =
                             self.state.active_preview_request.wrapping_add(1);
@@ -734,9 +741,6 @@ impl App {
             }
 
             Action::Submit => {
-                if self.state.is_loading {
-                    return None;
-                }
                 if self.state.player_picker_popup {
                     let idx = self.state.player_picker_state.selected().unwrap_or(0);
                     if let Some(player) = self.state.available_players.get(idx).copied() {
@@ -789,6 +793,9 @@ impl App {
                     self.action_sender
                         .send(Action::DownloadStream(sub_url_final))
                         .ok();
+                    return None;
+                }
+                if self.state.is_loading {
                     return None;
                 }
                 if self.state.favorites_focus {
@@ -924,7 +931,7 @@ impl App {
 
             let se = if item.season > 0 { item.season } else { 1 };
             let mut ep = if item.episode > 0 { item.episode } else { 1 };
-            let provider_key = self.state.active_provider.cache_key();
+            let provider_key = item.provider.cache_key();
             if let Some(hist) =
                 self.state
                     .history

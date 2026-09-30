@@ -17,9 +17,15 @@ impl App {
             return None;
         }
 
+        let main_area = if self.state.download_progress.is_some() {
+            crate::tui::app::App::split_main_and_download(area)[0]
+        } else {
+            area
+        };
+
         match self.state.active_screen {
-            Screen::Home => self.handle_home_mouse(col, row, area),
-            Screen::Details => self.handle_details_mouse(col, row, area),
+            Screen::Home => self.handle_home_mouse(col, row, main_area),
+            Screen::Details => self.handle_details_mouse(col, row, main_area),
         }
     }
 
@@ -63,7 +69,7 @@ impl App {
                 .state
                 .available_players
                 .iter()
-                .map(|k| format!("  {}  ", k.label()))
+                .map(|k| k.label().to_string())
                 .collect::<Vec<_>>();
             let confirm_label = if self.state.settings_player_picker {
                 "Select"
@@ -94,6 +100,7 @@ impl App {
                 }
                 Some(None) => {}
                 None => {
+                    self.state.is_resolving_playback = false;
                     self.state.player_picker_popup = false;
                     self.state.settings_player_picker = false;
                 }
@@ -186,6 +193,9 @@ impl App {
                 }
                 Some(None) => {}
                 None => {
+                    if let Some(orig) = self.state.original_theme_kind.take() {
+                        self.action_sender.send(Action::SelectTheme(orig)).ok();
+                    }
                     self.state.show_theme_popup = false;
                     self.state.theme_list_state.select(None);
                 }
@@ -303,7 +313,9 @@ impl App {
             return true;
         }
 
-        if let Some((ver, notes)) = &self.state.update_available {
+        if self.state.input_mode != InputMode::Editing
+            && let Some((ver, notes)) = &self.state.update_available
+        {
             let layout = crate::tui::overlay::update_modal_layout(area, notes);
             if layout
                 .popup_area
@@ -358,7 +370,7 @@ impl App {
                 .state
                 .subtitle_list
                 .iter()
-                .map(|(name, _)| format!("  {}  ", crate::tui::text::format_subtitle_label(name)))
+                .map(|(name, _)| crate::tui::text::format_subtitle_label(name))
                 .collect::<Vec<_>>();
             let confirm_label = if self.state.is_download_subtitle_popup {
                 "Download"
@@ -388,6 +400,10 @@ impl App {
                     self.state.subtitle_list.clear();
                     self.state.subtitle_list_state.select(None);
                     if is_dl {
+                        self.state.is_waiting_for_download_stream = false;
+                        self.state.download_queue.clear();
+                        self.state.download_queue_total = 0;
+                        self.state.season_subtitle_preference = None;
                         self.state
                             .set_status_default("Download subtitle selection cancelled.");
                     } else {
@@ -889,11 +905,11 @@ impl App {
         let mut buttons: Vec<(BottomBtn, u16)> = Vec::new();
 
         if self.state.streaming_enabled && current_mode != crate::tui::state::AppMode::Streaming {
-            let len = (3 + ctrl_s.len() + 6) as u16;
+            let len = (3 + ctrl_s.len() + if compact { 0 } else { 7 }) as u16;
             buttons.push((BottomBtn::Stream, len));
         }
         if self.state.tv_enabled && current_mode != crate::tui::state::AppMode::Tv {
-            let len = (3 + ctrl_t.len() + 2) as u16;
+            let len = (3 + ctrl_t.len() + if compact { 0 } else { 3 }) as u16;
             buttons.push((BottomBtn::Tv, len));
         }
 
@@ -911,9 +927,13 @@ impl App {
         } else {
             0
         };
-        let help_w = if ultra_compact { 3 } else { 8 };
-        let quit_w = if ultra_compact { 3 } else { 8 };
-        let util_sep = 2;
+        let help_w = if compact { 3 } else { 8 };
+        let quit_w = if compact { 3 } else { 8 };
+        let util_sep = if compact {
+            u16::from(!ultra_compact)
+        } else {
+            2
+        };
 
         let total_w = modes_total_w + util_gap + help_w + util_sep + quit_w;
         let start_x = width.saturating_sub(total_w) / 2;
@@ -1029,11 +1049,17 @@ impl App {
                 .get(self.state.season_list_state.selected().unwrap_or(0))
                 .map_or(0, Vec::len);
             let language_count = dubs_count;
-            language_count
-                .max(self.state.available_seasons.len())
-                .max(episode_count)
-                .min((bottom_area.height / 3).clamp(4, 10) as usize) as u16
-                + 2
+            let max_visible_items = visible_selector_panes
+                .iter()
+                .map(|pane| match pane {
+                    DetailsPane::Languages => language_count,
+                    DetailsPane::Seasons => self.state.available_seasons.len(),
+                    DetailsPane::Episodes => episode_count,
+                    DetailsPane::Streams => 0,
+                })
+                .max()
+                .unwrap_or(0);
+            max_visible_items.min((bottom_area.height / 3).clamp(4, 10) as usize) as u16 + 2
         };
 
         let lower_chunks =
@@ -1209,13 +1235,18 @@ impl App {
             let end = start + w;
             if col >= start && col < end + sep {
                 match action {
-                    FooterAction::PlaySelect => {
-                        if is_streams {
+                    FooterAction::PlaySelect => match self.state.details_pane {
+                        DetailsPane::Streams => {
                             self.action_sender.send(Action::PlayStream).ok();
-                        } else {
-                            self.action_sender.send(Action::Submit).ok();
                         }
-                    }
+                        DetailsPane::Seasons | DetailsPane::Episodes => {
+                            self.trigger_episode_fetch();
+                        }
+                        DetailsPane::Languages => {
+                            let idx = self.state.language_list_state.selected().unwrap_or(0);
+                            self.action_sender.send(Action::SelectLanguage(idx)).ok();
+                        }
+                    },
                     FooterAction::Download => {
                         if is_seasons {
                             self.action_sender.send(Action::DownloadSeason).ok();

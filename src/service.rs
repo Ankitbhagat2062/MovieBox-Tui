@@ -378,8 +378,16 @@ impl MovieBoxService {
         preferred_filename: Option<&str>,
     ) -> Result<PathBuf, String> {
         let mut request = self.http_client.get(url);
+        let sub_host = crate::proxy::extract_host_authority(url);
+        let referer_host = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
+            .and_then(|(_, val)| crate::proxy::extract_host_authority(val));
+        let same_host = sub_host.is_some() && sub_host == referer_host;
         for (name, value) in headers {
-            request = request.header(name.as_str(), value.as_str());
+            if crate::proxy::should_forward_header(same_host, name) {
+                request = request.header(name.as_str(), value.as_str());
+            }
         }
 
         let response = tokio::time::timeout(std::time::Duration::from_secs(8), request.send())
@@ -394,21 +402,18 @@ impl MovieBoxService {
             .await
             .map_err(|e| format!("Failed to read subtitle bytes: {e}"))?;
 
-        let extension = url
-            .rsplit('.')
-            .next()
-            .map(|e| e.to_ascii_lowercase())
-            .filter(|e| matches!(e.as_str(), "srt" | "vtt" | "ass" | "ssa" | "sub"))
-            .unwrap_or_else(|| "srt".to_string());
-
+        let extension = subtitle_extension_from_url(url);
         let base_dir = resolve_subtitle_dir();
         let _ = tokio::fs::create_dir_all(&base_dir).await;
 
+        let url_clean = url.split(['?', '#']).next().unwrap_or(url);
+        let url_tag = &crate::cache::md5_hex(url_clean)[..8];
         let file_stem = if let Some(pref) = preferred_filename {
-            crate::download::safe_file_stem(pref)
+            let base = crate::download::safe_file_stem(pref);
+            format!("{base}_{url_tag}")
         } else {
             format!(
-                "{}_{}",
+                "{}_{}_{url_tag}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -505,6 +510,18 @@ pub fn resolve_subtitle_dir() -> PathBuf {
         }
     }
     crate::config::cache_dir().join("subs")
+}
+
+pub fn subtitle_extension_from_url(url: &str) -> &'static str {
+    let clean = url.split(['?', '#']).next().unwrap_or(url);
+    match clean.rsplit('.').next() {
+        Some(ext) if ext.eq_ignore_ascii_case("srt") => "srt",
+        Some(ext) if ext.eq_ignore_ascii_case("vtt") => "vtt",
+        Some(ext) if ext.eq_ignore_ascii_case("ass") => "ass",
+        Some(ext) if ext.eq_ignore_ascii_case("ssa") => "ssa",
+        Some(ext) if ext.eq_ignore_ascii_case("sub") => "sub",
+        _ => "srt",
+    }
 }
 
 pub fn ensure_moviebox_subdir(path: &Path) -> PathBuf {
@@ -643,6 +660,32 @@ mod tests {
         assert_eq!(
             matched.unwrap().get("id").unwrap().as_str(),
             Some("movie_res_1")
+        );
+    }
+
+    #[test]
+    fn test_subtitle_extension_from_url_strips_signed_query_and_fragment() {
+        assert_eq!(
+            subtitle_extension_from_url(
+                "https://cacdn.hakunaymatata.com/subtitle/5cc122.vtt?Policy=eyJ&Signature=abc&Key-Pair-Id=KMH"
+            ),
+            "vtt"
+        );
+        assert_eq!(
+            subtitle_extension_from_url("https://cdn.example.com/subs/track.ASS?token=123#cue1"),
+            "ass"
+        );
+        assert_eq!(
+            subtitle_extension_from_url("https://cdn.example.com/subs/track.ssa"),
+            "ssa"
+        );
+        assert_eq!(
+            subtitle_extension_from_url("https://cdn.example.com/subs/track.sub?exp=999"),
+            "sub"
+        );
+        assert_eq!(
+            subtitle_extension_from_url("https://cdn.example.com/subs/unknown?format=text"),
+            "srt"
         );
     }
 }

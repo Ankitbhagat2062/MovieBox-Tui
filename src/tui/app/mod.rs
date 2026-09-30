@@ -28,6 +28,7 @@ pub struct RequestTaskHandles {
     pub download: Option<tokio::task::JoinHandle<()>>,
     pub stream_pool_init: Option<tokio::task::JoinHandle<()>>,
     pub episode_prefetch: Option<tokio::task::JoinHandle<()>>,
+    pub playback_resolve: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl RequestTaskHandles {
@@ -74,6 +75,12 @@ impl RequestTaskHandles {
 
     pub fn cancel_episode_prefetch(&mut self) {
         if let Some(h) = self.episode_prefetch.take() {
+            h.abort();
+        }
+    }
+
+    pub fn cancel_playback_resolve(&mut self) {
+        if let Some(h) = self.playback_resolve.take() {
             h.abort();
         }
     }
@@ -142,6 +149,14 @@ impl RequestTaskHandles {
         self.episode_prefetch = Some(tokio::spawn(future));
     }
 
+    pub fn spawn_playback_resolve<F>(&mut self, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.cancel_playback_resolve();
+        self.playback_resolve = Some(tokio::spawn(future));
+    }
+
     pub fn cancel_all(&mut self) {
         self.cancel_search();
         self.cancel_details();
@@ -151,6 +166,7 @@ impl RequestTaskHandles {
         self.cancel_download();
         self.cancel_stream_pool_init();
         self.cancel_episode_prefetch();
+        self.cancel_playback_resolve();
     }
 }
 
@@ -293,6 +309,12 @@ impl App {
     fn context_is_current(&self, context: RequestContext) -> bool {
         context.provider == self.state.active_provider
             && context.generation == self.state.provider_generation
+    }
+
+    fn details_context_is_current(&self, context: RequestContext, subject_id: &str) -> bool {
+        context.generation == self.state.provider_generation
+            && (context.provider == self.state.active_provider
+                || context.provider == self.provider_for_subject(subject_id))
     }
 
     fn persist_config(&self) {

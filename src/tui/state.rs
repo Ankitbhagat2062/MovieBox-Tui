@@ -526,6 +526,10 @@ impl AppState {
         self.subtitle_popup = false;
         self.is_download_subtitle_popup = false;
         self.player_picker_popup = false;
+        self.is_resolving_playback = false;
+        self.is_waiting_for_download_stream = false;
+        self.pending_play_link = None;
+        self.pending_playback_source = None;
         self.selected_details = None;
         self.selected_resources.clear();
         self.active_subject_id = None;

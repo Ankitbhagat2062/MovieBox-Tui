@@ -203,17 +203,40 @@ pub fn command(
     }
 }
 
+fn is_flatpak_executable(executable: &str) -> bool {
+    executable.starts_with("flatpak run ")
+        || executable.contains("/flatpak/exports/bin/")
+        || matches!(executable, "io.mpv.Mpv" | "org.videolan.VLC")
+}
+
 fn build_player_process_command(executable: &str) -> Command {
-    if executable.starts_with("flatpak run ") {
-        let parts = executable.split_whitespace().collect::<Vec<_>>();
-        let mut cmd = Command::new(parts.first().unwrap_or(&"flatpak"));
-        if parts.len() > 1 && parts[1] == "run" {
-            cmd.arg("run");
-            cmd.arg("--file-forwarding");
-            cmd.args(&parts[2..]);
-        } else {
-            cmd.args(&parts[1..]);
-        }
+    if let Some(rest) = executable.strip_prefix("flatpak run ") {
+        let mut cmd = Command::new("flatpak");
+        cmd.arg("run")
+            .arg("--file-forwarding")
+            .arg("--filesystem=xdg-cache/moviebox-tui:ro")
+            .arg("--filesystem=xdg-data/moviebox-tui")
+            .arg("--filesystem=/tmp:ro")
+            .args(rest.split_whitespace());
+        cmd
+    } else if executable.contains("/flatpak/exports/bin/") {
+        let app_id = executable.rsplit('/').next().unwrap_or(executable);
+        let mut cmd = Command::new("flatpak");
+        cmd.arg("run")
+            .arg("--file-forwarding")
+            .arg("--filesystem=xdg-cache/moviebox-tui:ro")
+            .arg("--filesystem=xdg-data/moviebox-tui")
+            .arg("--filesystem=/tmp:ro")
+            .arg(app_id);
+        cmd
+    } else if matches!(executable, "io.mpv.Mpv" | "org.videolan.VLC") {
+        let mut cmd = Command::new("flatpak");
+        cmd.arg("run")
+            .arg("--file-forwarding")
+            .arg("--filesystem=xdg-cache/moviebox-tui:ro")
+            .arg("--filesystem=xdg-data/moviebox-tui")
+            .arg("--filesystem=/tmp:ro")
+            .arg(executable);
         cmd
     } else {
         Command::new(executable)
@@ -557,9 +580,7 @@ fn mpv_command(
         command.arg(format!("{opt}={sub_path}"));
     }
 
-    if executable.starts_with("flatpak run ")
-        && (url.starts_with('/') || url.starts_with("file://"))
-    {
+    if is_flatpak_executable(&executable) && (url.starts_with('/') || url.starts_with("file://")) {
         command.arg("@@").arg(url).arg("@@");
     } else {
         command.arg(url);
@@ -713,6 +734,8 @@ fn vlc_command(
             .arg(format!("--height={height}"));
     }
     command.arg("--play-and-exit");
+    #[cfg(not(target_os = "macos"))]
+    command.arg("--no-one-instance");
     command.arg("--network-caching=3000");
     command.arg("--file-caching=3000");
     command.arg("--http-reconnect");
@@ -734,13 +757,11 @@ fn vlc_command(
         }
     }
     if let Some(subtitle) = subtitle {
-        let sub_path = normalize_player_path(subtitle);
+        let sub_path = vlc_subtitle_path(subtitle);
         command.arg(format!("--sub-file={sub_path}"));
     }
 
-    if executable.starts_with("flatpak run ")
-        && (url.starts_with('/') || url.starts_with("file://"))
-    {
+    if is_flatpak_executable(&executable) && (url.starts_with('/') || url.starts_with("file://")) {
         command.arg("@@").arg(url).arg("@@");
     } else {
         command.arg(url);
@@ -1541,6 +1562,19 @@ fn normalize_player_path(path: &str) -> String {
     }
 }
 
+fn vlc_subtitle_path(path: &str) -> String {
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return path.to_string();
+    }
+    let bytes = path.as_bytes();
+    let is_windows_drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    if is_windows_drive || path.starts_with(r"\\") {
+        path.replace('/', r"\")
+    } else {
+        path.to_string()
+    }
+}
+
 pub fn format_mpv_script_opts(
     provider: &str,
     subject_id: &str,
@@ -1548,9 +1582,11 @@ pub fn format_mpv_script_opts(
     episode: usize,
     state_file: &Path,
 ) -> String {
-    let state_file_str = normalize_player_path(&state_file.to_string_lossy());
+    let state_file_str = normalize_player_path(&state_file.to_string_lossy()).replace(',', "_");
+    let safe_provider = provider.replace(',', "_");
+    let safe_subject = subject_id.replace(',', "_");
     format!(
-        "moviebox-provider={provider},moviebox-subject_id={subject_id},moviebox-season={season},moviebox-episode={episode},moviebox-state_file={state_file_str}"
+        "moviebox-provider={safe_provider},moviebox-subject_id={safe_subject},moviebox-season={season},moviebox-episode={episode},moviebox-state_file={state_file_str}"
     )
 }
 
@@ -1611,24 +1647,27 @@ mod tests {
     }
 
     #[test]
-    fn vlc_command_normalizes_windows_subtitle_paths() {
-        let command = vlc_command(
-            "https://example.test/video.mp4",
-            Some(r"C:\Users\User\AppData\Local\MovieBox-Tui\subs\sub.srt"),
-            &[],
-            None,
-            None,
-            None,
-        );
-        let args = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        assert!(
-            args.contains(
-                &"--sub-file=C:/Users/User/AppData/Local/MovieBox-Tui/subs/sub.srt".into()
-            )
-        );
+    fn vlc_command_preserves_windows_native_subtitle_separators() {
+        for input in [
+            r"C:\Users\User\AppData\Local\MovieBox-Tui\subs\sub.srt",
+            "C:/Users/User/AppData/Local/MovieBox-Tui/subs/sub.srt",
+        ] {
+            let command = vlc_command(
+                "https://example.test/video.mp4",
+                Some(input),
+                &[],
+                None,
+                None,
+                None,
+            );
+            let args = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            assert!(args.contains(
+                &r"--sub-file=C:\Users\User\AppData\Local\MovieBox-Tui\subs\sub.srt".into()
+            ));
+        }
     }
     #[test]
     fn vlc_command_preserves_unc_subtitle_paths() {
@@ -2062,6 +2101,7 @@ mod tests {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         assert!(direct_args.iter().any(|a| a.ends_with("hwdec=auto-safe")));
+        assert!(direct_args.contains(&"--mpv-sub-files=/tmp/sub.srt".to_string()));
         assert!(
             direct_args
                 .iter()
@@ -2088,5 +2128,34 @@ mod tests {
             .collect();
         assert!(dash_args.iter().any(|a| a.ends_with("force-seekable=yes")));
         assert!(!dash_args.iter().any(|a| a.ends_with("ytdl=no")));
+    }
+
+    #[test]
+    fn test_flatpak_process_command_preserves_flags_and_mounts() {
+        let cmd = build_player_process_command("flatpak run --user org.videolan.VLC");
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "run",
+                "--file-forwarding",
+                "--filesystem=xdg-cache/moviebox-tui:ro",
+                "--filesystem=xdg-data/moviebox-tui",
+                "--filesystem=/tmp:ro",
+                "--user",
+                "org.videolan.VLC",
+            ]
+        );
+
+        let export_cmd = build_player_process_command("/var/lib/flatpak/exports/bin/io.mpv.Mpv");
+        let export_args: Vec<String> = export_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(export_args.last().map(String::as_str), Some("io.mpv.Mpv"));
+        assert!(export_args.contains(&"--filesystem=xdg-data/moviebox-tui".to_string()));
     }
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Media Playback & Subtitle Engine**:
+  - Preserved native Windows `\` path separators for `--sub-file` in VLC (`C:\...`) and passed `--no-one-instance` on Windows/Linux so open VLC windows do not strip subtitle, header, or resume flags.
+  - Stripped query strings and fragments before parsing subtitle extensions (`.srt`, `.vtt`, `.ass`, `.ssa`, `.sub`), preventing signed CloudFront/OSS URLs from saving as `.srt` or injecting mismatched DASH MIME types.
+  - Pre-downloaded subtitles locally for `mpv` with remote URL fallback, appended an 8-char URL hash to subtitle filenames to prevent cross-language overwrites, and sanitized commas in `--script-opts`.
+  - Mounted `xdg-cache/moviebox-tui:ro`, `xdg-data/moviebox-tui`, and `/tmp:ro` in `flatpak run` while preserving custom user Flatpak flags so sandboxed `mpv` and `VLC` can read subtitles and write watch progress.
+  - Served Termux private-storage subtitles over the local `StreamRelay` `/sub/` loopback endpoint when Android shared storage is unavailable, and restricted startup subtitle cleanup to internal cache/temp folders.
+  - Enforced UTF-8 character boundaries when truncating player error logs.
+- **StreamRelay Proxy & Downloader**:
+  - Forwarded `User-Agent` and `Referer` while isolating stream cookies (`Cookie: Edge-Cache-Cookie=...`) to same-host requests across `StreamRelay`, subtitle pre-downloads, and media downloads, preventing HTTP 403 CDN rejections.
+  - Capped `.m4s` segment chunk fetching in `StreamRelay` to batches of 16 concurrent `Range` requests and enforced `http://` / `https://` scheme validation on `/proxy?url=` routes.
+  - Guarded `yt-dlp` progress parsing to match `"at"` strictly after `"of"`, preventing slice panics on out-of-order status lines.
+- **Providers & Disk Cache**:
+  - Removed the broad `"notice"` substring filter in MovieBox stream adaptation while keeping `/notice.mp4` and known deprecation hashes, restoring streams for titles like *Red Notice* and *Burn Notice*.
+  - Required a leading `'S'` prefix in 4KHDHub season count parsing so release years after `"Score"` are not parsed as thousands of seasons.
+  - Improved Dramachi episode number extraction across Unicode boundaries and quality suffixes, and inserted `/manifest.json` before query parameters in Stremio addon URLs.
+  - Evicted cached poster images only when file age exceeds the 30-day TTL, preserving valid cache files across minor clock skew.
+- **TUI Navigation, Modals & Mouse**:
+  - Validated `Details` and stream responses against each item's own provider, fixing infinite `"Loading details..."` hangs when opening cross-provider items from Continue Watching, Favorites, `/history`, or `/favorites`.
+  - Aborted in-flight caption and 4KHDHub mirror resolution tasks on `Esc` / `GoBack`, preventing stale subtitle popups or player launches after leaving `Details`.
+  - Processed active Picker and Subtitle popups before the background loading guard on `Enter`, cleared queued season downloads when cancelling the download subtitle prompt or on stream failure, and reset TV input focus on overlay dismissal.
+  - Enabled `/browse` for Stremio Addons, skipped search pagination on active addon catalogs, and clamped initial cursor selection in empty TV and Addon manager modals.
+  - Synchronized `Home` and `Details` mouse hitboxes with the 3-row download gauge, narrow `< 85` col selector panes, compact `< 76` col bottom bar buttons, non-Stream footer `[Enter] Select` actions, and outside-click theme preview revert.
+
 ## [0.1.25] - 2026-09-27
 
 ### Fixed

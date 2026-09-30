@@ -333,38 +333,35 @@ impl App {
                 item.title.clone()
             }
         });
-
+        let service = self.service.clone();
         tokio::spawn(async move {
+            let is_android = matches!(kind, crate::tui::state::PlayerKind::AndroidIntent);
             let mut local_subtitle = subtitle.clone();
             let mut temporary_subtitle = None;
-            if matches!(
-                kind,
-                crate::tui::state::PlayerKind::Vlc
-                    | crate::tui::state::PlayerKind::Iina
-                    | crate::tui::state::PlayerKind::AndroidIntent
-            ) && let Some(ref url) = subtitle
-            {
-                let download_res = crate::service::MovieBoxService::new()
+            if let Some(url) = &subtitle {
+                let download_res = service
                     .download_subtitle_file(url, &headers, preferred_sub_name.as_deref())
                     .await;
                 match download_res {
                     Ok(path) => {
                         local_subtitle = Some(path.to_string_lossy().into_owned());
-                        if !matches!(kind, crate::tui::state::PlayerKind::AndroidIntent) {
+                        if !is_android {
                             temporary_subtitle = Some(path);
                         }
                     }
                     Err(_) => {
-                        local_subtitle = None;
                         log::warn!(
-                            "subtitle download failed for {:?} player, playing without subtitles (url was {})",
+                            "subtitle download failed for {:?} player (url was {})",
                             kind,
                             crate::logging::sanitize_url(url)
                         );
-                        let _ = sender.send(Action::SetStatus(
-                            "Warning: External subtitle unavailable; playing stream directly."
-                                .to_string(),
-                        ));
+                        if !matches!(kind, crate::tui::state::PlayerKind::Mpv) {
+                            local_subtitle = None;
+                            let _ = sender.send(Action::SetStatus(
+                                "Warning: External subtitle unavailable; playing stream directly."
+                                    .to_string(),
+                            ));
+                        }
                     }
                 }
             }
@@ -373,6 +370,10 @@ impl App {
                 .as_ref()
                 .map(|(p, s, se, ep)| (p.as_str(), s.as_str(), *se, *ep));
 
+            let android_sub_is_private = is_android
+                && local_subtitle
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("/data/data/com.termux/"));
             let is_dash = crate::player::is_dash_url(&link);
             let has_extra_headers = headers.iter().any(|(name, _)| {
                 !name.eq_ignore_ascii_case("referer") && !name.eq_ignore_ascii_case("user-agent")
@@ -382,8 +383,11 @@ impl App {
                     kind,
                     crate::tui::state::PlayerKind::Vlc
                         | crate::tui::state::PlayerKind::AndroidIntent
-                ) && has_extra_headers);
-            let sidecar_sub = if matches!(kind, crate::tui::state::PlayerKind::AndroidIntent) {
+                ) && has_extra_headers)
+                || (is_android
+                    && subtitle.is_some()
+                    && (local_subtitle.is_none() || android_sub_is_private));
+            let sidecar_sub = if is_android {
                 subtitle.as_deref()
             } else {
                 None
@@ -394,29 +398,28 @@ impl App {
                 match crate::proxy::spawn_sidecar(&link, &headers, sidecar_sub, max_height) {
                     Ok((local_url, sc_child)) => {
                         sidecar_child = Some(sc_child);
-                        let sub_url =
-                            if matches!(kind, crate::tui::state::PlayerKind::AndroidIntent) {
-                                if local_subtitle.is_some() {
-                                    local_subtitle.clone()
-                                } else if let Some(remote_sub) = &subtitle {
-                                    if let Some(authority) = local_url
-                                        .strip_prefix("http://")
-                                        .and_then(|s| s.split('/').next())
-                                    {
-                                        let encoded = percent_encoding::utf8_percent_encode(
-                                            remote_sub,
-                                            percent_encoding::NON_ALPHANUMERIC,
-                                        );
-                                        Some(format!("http://{authority}/sub/{encoded}"))
-                                    } else {
-                                        None
-                                    }
+                        let sub_url = if is_android {
+                            if local_subtitle.is_some() && !android_sub_is_private {
+                                local_subtitle.clone()
+                            } else if let Some(remote_sub) = &subtitle {
+                                if let Some(authority) = local_url
+                                    .strip_prefix("http://")
+                                    .and_then(|s| s.split('/').next())
+                                {
+                                    let encoded = percent_encoding::utf8_percent_encode(
+                                        remote_sub,
+                                        percent_encoding::NON_ALPHANUMERIC,
+                                    );
+                                    Some(format!("http://{authority}/sub/{encoded}"))
                                 } else {
                                     None
                                 }
                             } else {
-                                local_subtitle.clone()
-                            };
+                                None
+                            }
+                        } else {
+                            local_subtitle.clone()
+                        };
                         (local_url, sub_url)
                     }
                     Err(err) => {
@@ -472,7 +475,6 @@ impl App {
                     crate::player::configure_detached_process(&mut cmd);
                     cmd.spawn()
                 };
-            let is_android = matches!(kind, crate::tui::state::PlayerKind::AndroidIntent);
             let command = crate::tui::player::command(
                 kind,
                 &effective_link,
@@ -728,7 +730,11 @@ fn clean_player_error(code: Option<i32>, signal: Option<i32>, stderr: &str) -> S
     let trimmed = stderr.trim();
     if !trimmed.is_empty() {
         let bounded = if trimmed.len() > 512 {
-            &trimmed[..512]
+            let mut end = 512;
+            while end > 0 && !trimmed.is_char_boundary(end) {
+                end -= 1;
+            }
+            &trimmed[..end]
         } else {
             trimmed
         };
@@ -814,7 +820,7 @@ impl App {
                             }
                         };
                         let sender = self.action_sender.clone();
-                        tokio::spawn(async move {
+                        self.request_tasks.spawn_playback_resolve(async move {
                             let result = tokio::time::timeout(
                                 std::time::Duration::from_secs(18),
                                 client.resolve_release(
@@ -895,7 +901,7 @@ impl App {
                             .unwrap_or_default();
                         let season = self.state.selected_season;
                         let episode = self.state.selected_episode;
-                        tokio::spawn(async move {
+                        self.request_tasks.spawn_playback_resolve(async move {
                             let result = tokio::time::timeout(
                                 std::time::Duration::from_secs(15),
                                 service.get_ext_captions(
@@ -938,9 +944,9 @@ impl App {
                 self.state.is_resolving_playback = false;
                 let mut options = vec![("None".to_string(), "".to_string())];
                 options.extend(subtitles.into_iter().map(|s| (s.name, s.url)));
-
                 if options.len() > 1 {
                     self.state.show_help = false;
+                    self.state.show_overview_modal = false;
                     self.state.player_picker_popup = false;
                     self.state.is_download_subtitle_popup = false;
                     self.state.subtitle_popup = true;
@@ -970,9 +976,9 @@ impl App {
                 self.state.is_resolving_playback = false;
                 let mut options = vec![("None".to_string(), "".to_string())];
                 options.extend(subtitles.into_iter().map(|s| (s.name, s.url)));
-
                 if options.len() > 1 {
                     self.state.show_help = false;
+                    self.state.show_overview_modal = false;
                     self.state.player_picker_popup = false;
                     self.state.subtitle_popup = false;
                     self.state.is_download_subtitle_popup = true;

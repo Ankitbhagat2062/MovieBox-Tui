@@ -20,10 +20,11 @@ impl App {
                 self.reset_transient_overlays();
                 self.state.addon_manager_popup = true;
                 self.state.input_mode = crate::tui::state::InputMode::Normal;
-                self.state.addon_manager_selected = 1;
+                self.load_installed_addons_from_config();
+                self.state.addon_manager_selected =
+                    usize::from(!self.state.installed_addons.is_empty());
                 self.state.addon_input_active = false;
                 self.state.addon_input_buffer.clear();
-                self.load_installed_addons_from_config();
             }
 
             Action::AddonAddManifest(manifest_url) => {

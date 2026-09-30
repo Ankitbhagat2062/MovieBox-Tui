@@ -9,7 +9,7 @@ MovieBox-TUI runs on **macOS**, **Linux**, **Windows**, and **Android (Termux)**
 - **Binaries**: Shipped as universal binaries supporting both Apple Silicon (`arm64`) and Intel (`x86_64`).
 
 ### Linux
-- **Media Players**: Native `mpv`, `VLC`, or Flatpaks (`flatpak run io.mpv.Mpv`).
+- **Media Players**: Native `mpv`, `VLC`, or Flatpaks (`flatpak run --file-forwarding --filesystem=xdg-cache/moviebox-tui:ro --filesystem=xdg-data/moviebox-tui --filesystem=/tmp:ro <app-id>`).
 - **Binaries**: Static Musl executables compatible with glibc and musl systems across x86_64 and aarch64.
 
 ### Windows
@@ -20,14 +20,14 @@ MovieBox-TUI runs on **macOS**, **Linux**, **Windows**, and **Android (Termux)**
 ### Android (Termux)
 - **Media Players**: Uses Android intent dispatchers (`termux-open` / `am start`) to stream directly to external video players (VLC for Android, Just Player, MX Player, MPV Android).
 - **Prerequisites**: Run `pkg install -y termux-tools` in Termux.
-- **Subtitles**: Subtitles are saved to shared storage (`~/storage/downloads/moviebox_subs`) for player access.
+- **Subtitles**: Subtitles are saved to shared storage (`~/storage/downloads/moviebox_subs`) or served over the local `StreamRelay` loopback HTTP proxy when Termux shared storage is not mounted.
 - **DNS**: Built-in DNS resolver queries public resolvers (Cloudflare, Google, Quad9) without requiring root or Android JNI.
 
 ## Terminal Compatibility
 
 MovieBox-TUI automatically adapts to your terminal emulator:
 
-- **Images & Posters**: Automatically detects Kitty graphics, Sixel, and iTerm2 protocols (Ghostty, Kitty, WezTerm, iTerm2, foot, Alacritty, and Windows Terminal v1.22+). Windows Terminal supports Sixel posters natively without extra software once updated to version 1.22 or newer via the Microsoft Store. Terminals without image support display clean text containers (`No Art`). Disable with `MOVIEBOX_NO_IMAGE=1` or force with `MOVIEBOX_IMAGE_PROTOCOL=sixel`.
+- **Images & Posters**: Automatically detects Kitty graphics, Sixel, and iTerm2 protocols (Ghostty, Kitty, WezTerm, iTerm2, foot, Alacritty, and Windows Terminal v1.22+). In Windows Terminal v1.22+, enable Sixel under **Settings → Profiles → Defaults → Advanced → Enable Sixel graphics** (or `"experimental.sixelSupport": true` in `settings.json`). Terminals without image support display clean text containers (`No Art`). Disable with `MOVIEBOX_NO_IMAGE=1` or force with `MOVIEBOX_IMAGE_PROTOCOL=sixel`.
 - **Colors & Themes**: Auto-detects 24-bit TrueColor, 256-color palettes, and high-contrast monochrome mode (`NO_COLOR=1`).
 - **Keyboard Navigation**: Uses the Kitty keyboard protocol on supported emulators. Mobile Termux keyboards use standard ANSI input to avoid character garbage.
 - **Window Titles**: Automatically updates terminal window titles based on current title and screen mode.

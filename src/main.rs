@@ -28,7 +28,7 @@ fn purge_stale_subtitles() {
     tokio::task::spawn_blocking(|| {
         let max_age = 24 * 60 * 60;
         let dirs = [
-            moviebox_tui::service::resolve_subtitle_dir(),
+            moviebox_tui::config::cache_dir().join("subs"),
             std::env::temp_dir().join("moviebox-tui/subs"),
         ];
 

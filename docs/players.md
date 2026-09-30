@@ -28,21 +28,21 @@ mpv --autofit=WxH --geometry=50%:50% --hwdec=auto-safe --stream-buffer-size=4M -
 - **Hardware Decoding & Direct Streams**: Enables `--hwdec=auto-safe` for hardware-accelerated 4K 10-bit HEVC HDR decoding and passes `--ytdl=no` on non-DASH direct streams (`.mkv`, `.mp4`, `.m3u8`) for immediate native `ffmpeg` demuxer startup.
 - **Headers**: Custom stream headers (`User-Agent`, `Referer`) are passed via `--http-header-fields`.
 - **DASH Manifests & Loopback Acceleration**: DASH `.mpd` streams route through the local `StreamRelay` proxy (`127.0.0.1:<port>`), which caches rewritten manifests in RAM, warm-prefetches initialization and opening fragments on sidecar startup, fetches `.m4s` segments via parallel `95 KB` HTTP `Range` sub-requests, and prefetches both the next 3 video segments (`N+1..N+3`) and matching audio segments (`chunk-stream3-N..N+1`).
-- **Subtitles**: Remote subtitles are loaded directly via `--sub-file=<url>`.
+- **Subtitles**: Remote subtitles are pre-downloaded to temporary storage and passed via `--sub-file=<path>`, falling back to the remote URL if local download fails.
 
 ### VLC
 ```bash
-vlc --width=W --height=H --play-and-exit --network-caching=3000 --file-caching=3000 --http-reconnect --adaptive-logic=predictive [OPTIONS] <url>
+vlc --width=W --height=H --play-and-exit --no-one-instance --network-caching=3000 --file-caching=3000 --http-reconnect --adaptive-logic=predictive [OPTIONS] <url>
 ```
 - **Headers**: Mapped to `--http-user-agent` and `--http-referrer`.
 - **DASH & CloudFront Streams**: Cookie-authenticated and DASH `.mpd` streams route through the local `StreamRelay` proxy sidecar (`127.0.0.1:<port>`) with HTTP/1.1 persistent connections (`Keep-Alive`), parallel `95 KB` `Range`-chunked `.m4s` segment fetching, lookahead segment prefetching (`N+1..N+3`), and resolution representation capping.
-- **Subtitles**: Remote subtitles are pre-downloaded to temporary storage and passed via `--sub-file=<path>`.
+- **Subtitles**: Remote subtitles are pre-downloaded to temporary storage and passed via `--sub-file=<path>` using native Windows backslash separators (`C:\...`) on Windows and `--no-one-instance` on Windows/Linux so existing VLC instances do not strip CLI flags over IPC.
 
 ### IINA (macOS)
 ```bash
 iina-cli --keep-running --no-stdin --mpv-autofit=WxH [OPTIONS] <url>
 ```
-- Forwards `--mpv-*` arguments to internal mpv core.
+- Forwards `--mpv-*` arguments (including `--mpv-sub-files=<path>`) to internal mpv core.
 - Falls back to `open -a IINA <url>` if CLI tools are unlinked.
 
 ### Android / Termux
@@ -50,7 +50,7 @@ iina-cli --keep-running --no-stdin --mpv-autofit=WxH [OPTIONS] <url>
 termux-open --chooser --content-type video/* <url>
 ```
 - Opens the system app chooser, delegating playback to installed Android players (VLC, MX Player, Just Player, mpv-android).
-- Subtitles are saved to shared storage (`~/storage/downloads/moviebox_subs`) and passed via intent extras.
+- Subtitles are saved to shared storage (`~/storage/downloads/moviebox_subs`) and passed via intent extras, or served over the local `StreamRelay` loopback proxy (`http://127.0.0.1:<port>/sub/...`) when shared storage is unavailable.
 
 ## Watch History & Resume
 

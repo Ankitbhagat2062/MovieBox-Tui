@@ -341,7 +341,7 @@ fn parse_season_count(value: &str) -> Option<usize> {
     let suffix = &value[marker..];
     suffix
         .split(['-', ' ', '•'])
-        .filter_map(|part| part.trim_start_matches('S').parse::<usize>().ok())
+        .filter_map(|part| part.strip_prefix('S')?.parse::<usize>().ok())
         .max()
 }
 

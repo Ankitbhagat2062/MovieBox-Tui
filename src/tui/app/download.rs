@@ -151,20 +151,15 @@ impl App {
 
         self.request_tasks.cancel_download();
         let validation_base_dir = base_dir.clone();
+        let sub_http_client = self.service.http_client.clone();
+        let sub_headers = headers.clone();
         let handle = tokio::spawn(async move {
             if let Err(error) = prepare_target_dir(&validation_base_dir, &target_dir).await {
                 sender.send(Action::DownloadFailed(error)).ok();
                 return;
             }
             if let Some(subtitle_url) = subtitle_url {
-                let subtitle_extension = subtitle_url
-                    .rsplit('.')
-                    .next()
-                    .map(|extension| extension.to_ascii_lowercase())
-                    .filter(|extension| {
-                        matches!(extension.as_str(), "srt" | "vtt" | "ass" | "ssa" | "sub")
-                    })
-                    .unwrap_or_else(|| "srt".to_string());
+                let subtitle_extension = crate::service::subtitle_extension_from_url(&subtitle_url);
 
                 let lang_code = sub_lang
                     .as_deref()
@@ -174,15 +169,24 @@ impl App {
                 let final_ext = if let Some(code) = lang_code {
                     format!("{code}.{subtitle_extension}")
                 } else {
-                    subtitle_extension
+                    subtitle_extension.to_string()
                 };
 
                 let subtitle_path = destination.with_extension(final_ext);
-                let result = tokio::time::timeout(
-                    std::time::Duration::from_secs(30),
-                    client.get(subtitle_url).send(),
-                )
-                .await;
+                let mut sub_req = sub_http_client.get(&subtitle_url);
+                let sub_host = crate::proxy::extract_host_authority(&subtitle_url);
+                let referer_host = sub_headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("referer"))
+                    .and_then(|(_, val)| crate::proxy::extract_host_authority(val));
+                let same_host = sub_host.is_some() && sub_host == referer_host;
+                for (name, val) in &sub_headers {
+                    if crate::proxy::should_forward_header(same_host, name) {
+                        sub_req = sub_req.header(name.as_str(), val.as_str());
+                    }
+                }
+                let result =
+                    tokio::time::timeout(std::time::Duration::from_secs(30), sub_req.send()).await;
                 match result {
                     Ok(Ok(response)) => match response.error_for_status() {
                         Ok(response) => match response.bytes().await {
@@ -586,7 +590,7 @@ impl App {
                             }
                         };
                         let sender = self.action_sender.clone();
-                        tokio::spawn(async move {
+                        self.request_tasks.spawn_playback_resolve(async move {
                             let result = tokio::time::timeout(
                                 std::time::Duration::from_secs(18),
                                 client.resolve_release(
@@ -680,7 +684,7 @@ impl App {
                         .unwrap_or_default();
                     let season = self.state.selected_season;
                     let episode = self.state.selected_episode;
-                    tokio::spawn(async move {
+                    self.request_tasks.spawn_playback_resolve(async move {
                         if let Ok(res) = service
                             .get_ext_captions(&subject_id, &rid, &sibling_ids, season, episode)
                             .await
@@ -1078,7 +1082,12 @@ pub(crate) fn parse_ytdlp_progress(line: &str) -> Option<(f64, String)> {
     let mut eta = "";
 
     if let Some(of_idx) = words.iter().position(|&w| w == "of") {
-        let at_idx = words.iter().position(|&w| w == "at").unwrap_or(words.len());
+        let at_idx = words
+            .iter()
+            .skip(of_idx + 1)
+            .position(|&w| w == "at")
+            .map(|rel| of_idx + 1 + rel)
+            .unwrap_or(words.len());
         for &w in &words[of_idx + 1..at_idx] {
             let clean = w.trim_matches('~').trim();
             if !clean.is_empty() {

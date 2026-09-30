@@ -146,12 +146,21 @@ impl App {
                         self.state.help_scroll = 0;
                     }
                     if self.state.show_help {
+                        if self.state.show_theme_popup
+                            && let Some(orig) = self.state.original_theme_kind.take()
+                        {
+                            self.action_sender.send(Action::SelectTheme(orig)).ok();
+                        }
                         self.state.show_theme_popup = false;
                         self.state.show_browse_popup = false;
                         self.state.tv_config_popup = false;
                         self.state.player_picker_popup = false;
+                        self.state.settings_player_picker = false;
                         self.state.subtitle_popup = false;
                         self.state.is_download_subtitle_popup = false;
+                        self.state.is_resolving_playback = false;
+                        self.state.pending_play_link = None;
+                        self.state.pending_playback_source = None;
                     }
                 }
             }
@@ -643,11 +652,15 @@ impl App {
                         format!("Command /browse is available in Streaming Mode ({ctrl_s})."),
                     );
                 } else if current_mode == crate::tui::state::AppMode::Streaming
-                    && self.state.active_provider
-                        != crate::providers::models::ProviderKind::MovieBox
+                    && !matches!(
+                        self.state.active_provider,
+                        crate::providers::models::ProviderKind::MovieBox
+                            | crate::providers::models::ProviderKind::Addons
+                    )
                 {
-                    self.state
-                        .set_status_long("Browse is available only with the MovieBox provider.");
+                    self.state.set_status_long(
+                        "Browse is available only with the MovieBox or Addons provider.",
+                    );
                 } else {
                     self.reset_transient_overlays();
                     self.state.show_browse_popup = true;

@@ -803,7 +803,8 @@ impl App {
                 if request_id != self.state.active_details_request {
                     return None;
                 }
-                if !self.context_is_current(context) || self.state.active_screen != Screen::Details
+                if !self.details_context_is_current(context, &id)
+                    || self.state.active_screen != Screen::Details
                 {
                     return None;
                 }
@@ -1079,7 +1080,8 @@ impl App {
                     return None;
                 }
                 self.state.auto_play_on_ready = false;
-                if !self.context_is_current(context) {
+                let current_id = self.state.active_subject_id.clone().unwrap_or_default();
+                if !self.details_context_is_current(context, &current_id) {
                     return None;
                 }
                 log::error!(
@@ -1533,7 +1535,7 @@ impl App {
                 if request_id != self.state.active_resource_request {
                     return None;
                 }
-                if !self.context_is_current(context)
+                if !self.details_context_is_current(context, &subject_id)
                     || Some(&subject_id) != self.state.active_subject_id.as_ref()
                 {
                     return None;
@@ -1731,7 +1733,7 @@ impl App {
                             let season = self.state.selected_season;
                             let episode = self.state.selected_episode;
 
-                            tokio::spawn(async move {
+                            self.request_tasks.spawn_playback_resolve(async move {
                                 if let Ok(res) = service
                                     .get_ext_captions(
                                         &subject_id,
@@ -1780,7 +1782,7 @@ impl App {
                 if request_id != self.state.active_resource_request {
                     return None;
                 }
-                if !self.context_is_current(context)
+                if !self.details_context_is_current(context, &subject_id)
                     || Some(&subject_id) != self.state.active_subject_id.as_ref()
                 {
                     return None;
@@ -1791,6 +1793,10 @@ impl App {
                     return None;
                 }
                 self.state.auto_play_on_ready = false;
+                self.state.is_waiting_for_download_stream = false;
+                self.state.download_queue.clear();
+                self.state.download_queue_total = 0;
+                self.state.season_subtitle_preference = None;
                 self.state.is_loading = false;
                 self.state.is_fetching_streams = false;
                 self.state.has_streams_settled = true;

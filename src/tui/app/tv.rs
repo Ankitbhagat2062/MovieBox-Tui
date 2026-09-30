@@ -16,9 +16,11 @@ impl App {
         self.state.subtitle_popup = false;
         self.state.is_download_subtitle_popup = false;
         self.state.pending_play_link = None;
+        self.state.pending_playback_source = None;
         self.state.subtitle_list.clear();
         self.state.subtitle_list_state.select(None);
         self.state.is_resolving_playback = false;
+        self.state.is_waiting_for_download_stream = false;
         self.state.tv_input_active = false;
         self.state.tv_input_buffer.clear();
         self.state.tv_input_is_file = false;
@@ -82,7 +84,8 @@ impl App {
                     self.reset_transient_overlays();
                     self.state.tv_config_popup = true;
                     self.state.input_mode = crate::tui::state::InputMode::Normal;
-                    self.state.tv_manager_selected = 1;
+                    self.state.tv_manager_selected =
+                        usize::from(!self.state.tv_playlists.is_empty());
                     self.state.tv_input_active = false;
                     self.state.tv_input_buffer.clear();
                 }

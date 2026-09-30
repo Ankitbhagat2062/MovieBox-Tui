@@ -478,18 +478,13 @@ const IMAGE_CACHE_EXPIRY_SECS: u64 = 30 * 24 * 60 * 60;
 
 fn check_image_file(path: &PathBuf) -> Option<Vec<u8>> {
     if path.exists() {
-        if let Ok(metadata) = std::fs::metadata(path) {
-            match metadata.modified().ok().and_then(|m| m.elapsed().ok()) {
-                Some(elapsed) if elapsed.as_secs() > IMAGE_CACHE_EXPIRY_SECS => {
-                    let _ = std::fs::remove_file(path);
-                    return None;
-                }
-                None => {
-                    let _ = std::fs::remove_file(path);
-                    return None;
-                }
-                _ => {}
-            }
+        if let Ok(metadata) = std::fs::metadata(path)
+            && let Ok(modified) = metadata.modified()
+            && let Ok(elapsed) = modified.elapsed()
+            && elapsed.as_secs() > IMAGE_CACHE_EXPIRY_SECS
+        {
+            let _ = std::fs::remove_file(path);
+            return None;
         }
         return std::fs::read(path).ok();
     }

@@ -271,7 +271,7 @@ pub async fn run_sidecar(
     }
 }
 
-fn extract_host_authority(url: &str) -> Option<String> {
+pub(crate) fn extract_host_authority(url: &str) -> Option<String> {
     let after_scheme = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))?;
@@ -281,6 +281,10 @@ fn extract_host_authority(url: &str) -> Option<String> {
     } else {
         Some(authority.to_string())
     }
+}
+
+pub(crate) fn should_forward_header(forward_all: bool, name: &str) -> bool {
+    forward_all || name.eq_ignore_ascii_case("user-agent") || name.eq_ignore_ascii_case("referer")
 }
 
 async fn handle_connection(
@@ -477,7 +481,7 @@ async fn handle_connection(
         };
 
         for (name, val) in auth_headers {
-            if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
+            if should_forward_header(forward_all_headers, name) {
                 req = req.header(name.as_str(), val.as_str());
             }
         }
@@ -815,7 +819,7 @@ async fn fetch_m4s_chunked(
         .get(url)
         .header("Range", format!("bytes=0-{first_end}"));
     for (name, val) in auth_headers {
-        if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
+        if should_forward_header(forward_all_headers, name) {
             req = req.header(name.as_str(), val.as_str());
         }
     }
@@ -866,24 +870,25 @@ async fn fetch_m4s_chunked(
         pos = end + 1;
     }
 
-    let chunk_futs = ranges.into_iter().map(|(start, end)| async move {
-        let mut sub_req = client
-            .get(url)
-            .header("Range", format!("bytes={start}-{end}"));
-        for (name, val) in auth_headers {
-            if forward_all_headers || name.eq_ignore_ascii_case("user-agent") {
-                sub_req = sub_req.header(name.as_str(), val.as_str());
-            }
-        }
-        let sub_res = sub_req.send().await?.error_for_status()?;
-        sub_res.bytes().await
-    });
-
-    let remaining_chunks = futures::future::try_join_all(chunk_futs).await?;
     let mut assembled = Vec::with_capacity(total);
     assembled.extend_from_slice(&first_chunk);
-    for chunk in remaining_chunks {
-        assembled.extend_from_slice(&chunk);
+    for batch in ranges.chunks(16) {
+        let chunk_futs = batch.iter().copied().map(|(start, end)| async move {
+            let mut sub_req = client
+                .get(url)
+                .header("Range", format!("bytes={start}-{end}"));
+            for (name, val) in auth_headers {
+                if should_forward_header(forward_all_headers, name) {
+                    sub_req = sub_req.header(name.as_str(), val.as_str());
+                }
+            }
+            let sub_res = sub_req.send().await?.error_for_status()?;
+            sub_res.bytes().await
+        });
+        let batch_chunks = futures::future::try_join_all(chunk_futs).await?;
+        for chunk in batch_chunks {
+            assembled.extend_from_slice(&chunk);
+        }
     }
 
     Ok((reqwest::StatusCode::OK, content_type, Arc::from(assembled)))
@@ -958,7 +963,8 @@ fn extract_target_url(path_and_query: &str) -> Option<String> {
                     return percent_encoding::percent_decode_str(v)
                         .decode_utf8()
                         .ok()
-                        .map(|s| s.into_owned());
+                        .map(|s| s.into_owned())
+                        .filter(|s| s.starts_with("http://") || s.starts_with("https://"));
                 }
             }
         }
@@ -1076,8 +1082,13 @@ fn rewrite_dash_manifest(
             let encoded_sub =
                 percent_encoding::utf8_percent_encode(sub, percent_encoding::NON_ALPHANUMERIC);
             let sub_proxy_url = format!("http://127.0.0.1:{proxy_port}/sub/{encoded_sub}");
+            let sub_mime = match crate::service::subtitle_extension_from_url(sub) {
+                "vtt" => "text/vtt",
+                "ass" | "ssa" => "text/x-ssa",
+                _ => "application/x-subrip",
+            };
             let sub_adaptation_set = format!(
-                r#"<AdaptationSet contentType="text" mimeType="text/vtt" lang="en">
+                r#"<AdaptationSet contentType="text" mimeType="{sub_mime}" lang="en">
     <Role schemeIdUri="urn:mpeg:dash:role:2011" value="subtitle"/>
     <Representation id="sub_en" bandwidth="1000">
       <BaseURL>{sub_proxy_url}</BaseURL>

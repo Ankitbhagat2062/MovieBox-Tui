@@ -31,12 +31,13 @@ impl AddonClient {
         } else if !crate::net::is_http_url(&url) {
             url = format!("https://{url}");
         }
-        if !url.ends_with("/manifest.json") && !url.contains("/manifest.json?") {
-            if url.ends_with('/') {
-                url.push_str("manifest.json");
-            } else {
-                url.push_str("/manifest.json");
-            }
+        let (base, suffix) = match url.find(['?', '#']) {
+            Some(idx) => (&url[..idx], &url[idx..]),
+            None => (url.as_str(), ""),
+        };
+        if !base.ends_with("/manifest.json") {
+            let trimmed_base = base.trim_end_matches('/');
+            url = format!("{trimmed_base}/manifest.json{suffix}");
         }
         url
     }
