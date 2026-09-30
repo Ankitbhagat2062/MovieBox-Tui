@@ -425,10 +425,21 @@ impl App {
         let sender = self.action_sender.clone();
         handle.spawn(async move {
             let parser = crate::providers::tv::M3UParser::new();
+            let futs = playlists.iter().map(|source| {
+                let parser = &parser;
+                async move {
+                    let res = parser
+                        .fetch_playlist(source)
+                        .await
+                        .map_err(|e| e.to_string());
+                    (source, res)
+                }
+            });
+            let results = futures::future::join_all(futs).await;
             let mut all_channels = Vec::new();
             let mut failed = 0usize;
-            for source in &playlists {
-                match parser.fetch_playlist(source).await {
+            for (source, res) in results {
+                match res {
                     Ok(channels) => all_channels.extend(channels),
                     Err(error) => {
                         failed += 1;

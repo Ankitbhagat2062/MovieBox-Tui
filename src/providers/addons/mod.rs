@@ -47,16 +47,14 @@ impl Provider for AddonClient {
         let mut combined = Vec::new();
         for addon in catalog_addons {
             let base_url = Self::base_addon_url(&addon.manifest_url);
-            if let Ok(movies) = self
-                .fetch_catalog_search(&base_url, "movie", "top", query)
-                .await
-            {
+            let (movies_res, series_res) = tokio::join!(
+                self.fetch_catalog_search(&base_url, "movie", "top", query),
+                self.fetch_catalog_search(&base_url, "series", "top", query),
+            );
+            if let Ok(movies) = movies_res {
                 combined.extend(movies);
             }
-            if let Ok(series) = self
-                .fetch_catalog_search(&base_url, "series", "top", query)
-                .await
-            {
+            if let Ok(series) = series_res {
                 combined.extend(series);
             }
             if !combined.is_empty() {

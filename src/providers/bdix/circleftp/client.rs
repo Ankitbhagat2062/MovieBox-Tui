@@ -16,10 +16,14 @@ pub enum CircleFtpError {
     Parse(String),
 }
 
+type PostCache =
+    std::sync::Arc<std::sync::Mutex<Option<(String, std::time::Instant, serde_json::Value)>>>;
+
 #[derive(Clone)]
 pub struct CircleFtpClient {
     client: reqwest::Client,
     base_url: String,
+    post_cache: PostCache,
 }
 
 impl Default for CircleFtpClient {
@@ -38,7 +42,25 @@ impl CircleFtpClient {
         Self {
             client: build_client(),
             base_url: API_URL.to_string(),
+            post_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    async fn fetch_post(&self, id: &str) -> Result<serde_json::Value, CircleFtpError> {
+        if let Ok(lock) = self.post_cache.lock()
+            && let Some((cached_id, ts, val)) = lock.as_ref()
+            && cached_id == id
+            && ts.elapsed() < Duration::from_secs(60)
+        {
+            return Ok(val.clone());
+        }
+        let url = format!("{}/posts/{}", self.base_url, id);
+        let resp = self.client.get(&url).send().await?.error_for_status()?;
+        let json: serde_json::Value = resp.json().await?;
+        if let Ok(mut lock) = self.post_cache.lock() {
+            *lock = Some((id.to_string(), std::time::Instant::now(), json.clone()));
+        }
+        Ok(json)
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<CatalogItem>, CircleFtpError> {
@@ -55,9 +77,7 @@ impl CircleFtpClient {
     }
 
     pub async fn details(&self, id: &str) -> Result<MediaDetails, CircleFtpError> {
-        let url = format!("{}/posts/{}", self.base_url, id);
-        let resp = self.client.get(&url).send().await?.error_for_status()?;
-        let json: serde_json::Value = resp.json().await?;
+        let json = self.fetch_post(id).await?;
 
         let title = json
             .get("title")
@@ -192,10 +212,9 @@ impl CircleFtpClient {
     }
 
     async fn fetch_size(&self, link: &str) -> Option<u64> {
-        self.client
-            .head(link)
-            .send()
+        tokio::time::timeout(Duration::from_millis(1200), self.client.head(link).send())
             .await
+            .ok()?
             .ok()?
             .headers()
             .get(reqwest::header::CONTENT_LENGTH)?
@@ -211,9 +230,7 @@ impl CircleFtpClient {
         season: Option<usize>,
         episode: Option<usize>,
     ) -> Result<Vec<Release>, CircleFtpError> {
-        let url = format!("{}/posts/{}", self.base_url, id);
-        let resp = self.client.get(&url).send().await?;
-        let json: serde_json::Value = resp.json().await?;
+        let json = self.fetch_post(id).await?;
 
         let mut releases = Vec::new();
         let r#type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");

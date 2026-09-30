@@ -16,8 +16,10 @@
   - Reported specific subtitle and DASH download errors (HTTP status, timeout, missing `yt-dlp` vs `ffmpeg`) and matched `"at"` after `"of"` in `yt-dlp` progress lines.
 - **Providers & Disk Cache**:
   - Removed the broad `"notice"` substring filter in MovieBox stream adaptation while keeping `/notice.mp4` and known deprecation hashes, which restores streams for titles like *Red Notice* and *Burn Notice*.
+  - Advanced the active MovieBox host index immediately on connection or HTTP retry errors, removed the duplicate `/subject-api/resource` preflight round-trip in `InitStreamPool`, and removed the 120ms delay on cached episode switches.
+  - Streamed 4KHDHub mirror resolution directly into preflight probes via `FuturesUnordered` without waiting for slow mirrors, cached fetched detail pages across `details` and `releases` in 4KHDHub, Dramachi, and CircleFTP, and bounded CircleFTP `HEAD` size probes to 1.2 seconds.
   - Required a leading `'S'` prefix in 4KHDHub season count parsing so release years after `"Score"` do not parse as season counts, and cached static HTML selectors in 4KHDHub parsers.
-  - Matched Dramachi episode numbers across Unicode boundaries and quality suffixes, and inserted `/manifest.json` before query parameters in Stremio addon URLs.
+  - Matched Dramachi episode numbers across Unicode boundaries and quality suffixes, parallelized Stremio addon movie/series catalog searches and M3U playlist loads, and inserted `/manifest.json` before query parameters in addon URLs.
   - Evicted cached poster images only when file age exceeds the 30-day TTL so valid cache files survive minor clock skew.
   - Replaced synchronous `fsync` barriers on ephemeral cache writes with atomic temp-file renames, cached default directory paths via `LazyLock`, reused a static HTTP client in `probe_url`, and shared `Arc<[u8]>` poster buffers across disk caching and decoding.
 - **TUI Navigation, Themes, Modals & Mouse**:

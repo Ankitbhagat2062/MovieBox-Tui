@@ -1152,24 +1152,10 @@ impl App {
                 self.state.is_fetching_streams = true;
                 self.state.has_streams_settled = false;
                 self.state.stream_error = None;
-                if self.provider_for_subject(&subject_id) != ProviderKind::MovieBox {
-                    self.state
-                        .stream_pool
-                        .insert(subject_id.clone(), Default::default());
-                    self.trigger_episode_fetch();
-                    return None;
-                }
-                let service = self.service.clone();
-                let sender = self.action_sender.clone();
-                self.request_tasks.spawn_stream_pool_init(async move {
-                    let resolutions = service
-                        .fetch_collection_resolutions(&subject_id)
-                        .await
-                        .unwrap_or_default();
-                    sender
-                        .send(Action::StreamPoolInitialized(subject_id, resolutions))
-                        .ok();
-                });
+                self.request_tasks.cancel_stream_pool_init();
+                self.action_sender
+                    .send(Action::StreamPoolInitialized(subject_id, Vec::new()))
+                    .ok();
             }
 
             Action::StreamPoolInitialized(subject_id, resolutions) => {
@@ -1471,22 +1457,17 @@ impl App {
                     .or_default();
                 if !force_refresh {
                     if let Some(cached) = pool.episode_index.get(&(season, episode)) {
-                        let sender = self.action_sender.clone();
-                        let cached = cached.clone();
-                        let cached_subject_id = subject_id.clone();
-                        self.request_tasks.spawn_streams(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-                            sender
-                                .send(Action::EpisodeStreamsReady(
-                                    context,
-                                    request_id,
-                                    cached_subject_id,
-                                    season,
-                                    episode,
-                                    cached,
-                                ))
-                                .ok();
-                        });
+                        self.request_tasks.cancel_streams();
+                        self.action_sender
+                            .send(Action::EpisodeStreamsReady(
+                                context,
+                                request_id,
+                                subject_id.clone(),
+                                season,
+                                episode,
+                                cached.clone(),
+                            ))
+                            .ok();
                         return None;
                     }
                 }

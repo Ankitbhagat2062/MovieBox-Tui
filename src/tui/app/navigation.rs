@@ -307,14 +307,11 @@ impl App {
                 context.provider = self.provider_for_subject(&id);
                 let request_id = self.state.active_resource_request;
                 self.request_tasks.cancel_episode_prefetch();
-                self.request_tasks.episode_prefetch = Some(tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-                    sender
-                        .send(Action::EpisodeStreamsReady(
-                            context, request_id, id, se, ep, streams,
-                        ))
-                        .ok();
-                }));
+                sender
+                    .send(Action::EpisodeStreamsReady(
+                        context, request_id, id, se, ep, streams,
+                    ))
+                    .ok();
             } else {
                 self.state.selected_resources.clear();
                 self.state.is_loading = true;

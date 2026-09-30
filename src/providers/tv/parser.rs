@@ -29,7 +29,7 @@ impl M3UParser {
     pub async fn fetch_playlist(
         &self,
         url: &str,
-    ) -> Result<Vec<Channel>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Channel>, Box<dyn std::error::Error + Send + Sync>> {
         let trimmed = url.trim().trim_matches(|c| c == '"' || c == '\'').trim();
         let is_remote = crate::net::is_http_url(trimmed);
         let content = if is_remote {

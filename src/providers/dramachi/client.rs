@@ -33,10 +33,21 @@ impl From<DramachiError> for ProviderError {
     }
 }
 
+type TitleCache = std::sync::Arc<
+    std::sync::Mutex<Option<(String, std::time::Instant, DramachiTitleDetailsResponse)>>,
+>;
+type EpListCache = std::sync::Arc<
+    std::sync::Mutex<
+        std::collections::HashMap<(String, String), (std::time::Instant, Vec<DramachiEpisodeItem>)>,
+    >,
+>;
+
 #[derive(Debug, Clone)]
 pub struct DramachiClient {
     client: Client,
     base_url: String,
+    title_cache: TitleCache,
+    eplist_cache: EpListCache,
 }
 
 impl Default for DramachiClient {
@@ -47,14 +58,7 @@ impl Default for DramachiClient {
 
 impl DramachiClient {
     pub fn new() -> Self {
-        let client = crate::net::http_client_builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .unwrap_or_default();
-        Self {
-            client,
-            base_url: DEFAULT_BASE_URL.to_string(),
-        }
+        Self::with_base_url(DEFAULT_BASE_URL)
     }
 
     pub fn with_base_url(base_url: impl Into<String>) -> Self {
@@ -65,7 +69,42 @@ impl DramachiClient {
         Self {
             client,
             base_url: base_url.into(),
+            title_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            eplist_cache: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
         }
+    }
+
+    async fn fetch_title_details(
+        &self,
+        title_id: &str,
+    ) -> Result<DramachiTitleDetailsResponse, DramachiError> {
+        if let Ok(lock) = self.title_cache.lock()
+            && let Some((cached_id, ts, data)) = lock.as_ref()
+            && cached_id == title_id
+            && ts.elapsed() < Duration::from_secs(60)
+        {
+            return Ok(data.clone());
+        }
+        let url = format!(
+            "{}?interface=title_v2&id={}",
+            self.base_url,
+            encode_param(title_id)
+        );
+        let resp = self.client.get(&url).send().await?.error_for_status()?;
+        let data: DramachiTitleDetailsResponse = resp
+            .json()
+            .await
+            .map_err(|e| DramachiError::Parsing(format!("failed to parse title details: {e}")))?;
+        if let Ok(mut lock) = self.title_cache.lock() {
+            *lock = Some((
+                title_id.to_string(),
+                std::time::Instant::now(),
+                data.clone(),
+            ));
+        }
+        Ok(data)
     }
 
     pub async fn search(
@@ -138,16 +177,7 @@ impl DramachiClient {
             return Err(DramachiError::NotFound);
         }
 
-        let url = format!(
-            "{}?interface=title_v2&id={}",
-            self.base_url,
-            encode_param(title_id)
-        );
-        let resp = self.client.get(&url).send().await?.error_for_status()?;
-        let data: DramachiTitleDetailsResponse = resp
-            .json()
-            .await
-            .map_err(|e| DramachiError::Parsing(format!("failed to parse title details: {e}")))?;
+        let data = self.fetch_title_details(title_id).await?;
 
         let album = data
             .album
@@ -344,6 +374,13 @@ impl DramachiClient {
         title_id: &str,
         rip: &str,
     ) -> Result<Vec<DramachiEpisodeItem>, DramachiError> {
+        let key = (title_id.to_string(), rip.to_string());
+        if let Ok(lock) = self.eplist_cache.lock()
+            && let Some((ts, cached)) = lock.get(&key)
+            && ts.elapsed() < Duration::from_secs(60)
+        {
+            return Ok(cached.clone());
+        }
         let url = format!(
             "{}?interface=eplist&season={}&id={}",
             self.base_url,
@@ -359,6 +396,12 @@ impl DramachiClient {
 
         let mut episodes = data.episode_list.unwrap_or_default();
         episodes.sort_by_key(|ep| parse_episode_number(&ep.f_title).unwrap_or(usize::MAX));
+        if let Ok(mut lock) = self.eplist_cache.lock() {
+            if lock.len() >= 16 {
+                lock.clear();
+            }
+            lock.insert(key, (std::time::Instant::now(), episodes.clone()));
+        }
         Ok(episodes)
     }
 
@@ -427,15 +470,7 @@ impl DramachiClient {
         let rip_to_query = if let Some(rip) = target_rip {
             rip.to_string()
         } else {
-            let details_url = format!(
-                "{}?interface=title_v2&id={}",
-                self.base_url,
-                encode_param(title_id)
-            );
-            let resp = self.client.get(&details_url).send().await?;
-            let data: DramachiTitleDetailsResponse = resp.json().await.map_err(|e| {
-                DramachiError::Parsing(format!("failed to parse title details: {e}"))
-            })?;
+            let data = self.fetch_title_details(title_id).await?;
 
             let mut resolved_rip = None;
             if let Some(seasons_map) = &data.seasons {

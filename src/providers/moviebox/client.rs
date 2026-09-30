@@ -277,6 +277,8 @@ impl MovieBoxClient {
                             "moviebox host {idx} returned retryable status {status}: {}",
                             crate::logging::sanitize_url(&url)
                         );
+                        self.active_base_idx
+                            .store((idx + 1) % HOST_POOL.len(), Ordering::Relaxed);
                         if status == 429 {
                             backoff_ms = resp
                                 .headers()
@@ -307,6 +309,8 @@ impl MovieBoxClient {
                         "moviebox host {idx} request failed: {error} [{}]",
                         crate::logging::sanitize_url(&url)
                     );
+                    self.active_base_idx
+                        .store((idx + 1) % HOST_POOL.len(), Ordering::Relaxed);
                     continue;
                 }
             }

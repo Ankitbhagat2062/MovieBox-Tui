@@ -54,10 +54,13 @@ impl FourKHdHubError {
     }
 }
 
+type PageCache = std::sync::Arc<std::sync::Mutex<Option<(String, std::time::Instant, String)>>>;
+
 #[derive(Clone)]
 pub struct FourKHdHubClient {
     client: reqwest::Client,
     base_url: Url,
+    page_cache: PageCache,
 }
 
 impl FourKHdHubClient {
@@ -76,6 +79,7 @@ impl FourKHdHubClient {
         Ok(Self {
             client: build_client(),
             base_url,
+            page_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -97,9 +101,25 @@ impl FourKHdHubClient {
         parser::parse_search(&self.base_url, &html)
     }
 
-    pub async fn details(&self, id: &str) -> Result<MediaDetails, FourKHdHubError> {
+    async fn fetch_cached_page(&self, id: &str) -> Result<String, FourKHdHubError> {
         let url = self.provider_url(id)?;
+        let key = url.as_str().to_string();
+        if let Ok(lock) = self.page_cache.lock()
+            && let Some((cached_key, ts, html)) = lock.as_ref()
+            && cached_key == &key
+            && ts.elapsed() < std::time::Duration::from_secs(60)
+        {
+            return Ok(html.clone());
+        }
         let html = self.fetch_text(url).await?;
+        if let Ok(mut lock) = self.page_cache.lock() {
+            *lock = Some((key, std::time::Instant::now(), html.clone()));
+        }
+        Ok(html)
+    }
+
+    pub async fn details(&self, id: &str) -> Result<MediaDetails, FourKHdHubError> {
+        let html = self.fetch_cached_page(id).await?;
         parser::parse_details(id, &html)
     }
 
@@ -109,8 +129,7 @@ impl FourKHdHubClient {
         season: usize,
         episode: usize,
     ) -> Result<Vec<Release>, FourKHdHubError> {
-        let url = self.provider_url(id)?;
-        let html = self.fetch_text(url).await?;
+        let html = self.fetch_cached_page(id).await?;
         parser::parse_releases(&html, season, episode)
     }
 
@@ -125,12 +144,14 @@ impl FourKHdHubClient {
             ));
         }
         let referer = self.base_url.as_str().trim_end_matches('/').to_string();
-        let fetch_futures = release.mirrors.iter().map(|mirror| {
+        use futures::StreamExt;
+        let mut resolve_tasks = futures::stream::FuturesUnordered::new();
+        for mirror in &release.mirrors {
             let client = self.client.clone();
             let mirror_url = mirror.resolver_url.clone();
             let mirror_label = mirror.label.clone();
             let mirror_headers = mirror.headers.clone();
-            async move {
+            resolve_tasks.push(async move {
                 let fetch = async {
                     if mirror_url.contains("hubcloud.") {
                         hubcloud::resolve(&client, &mirror_url, intent).await
@@ -151,78 +172,85 @@ impl FourKHdHubClient {
                         FourKHdHubError::NoPlayableMirror("mirror resolver timed out".into())
                     })
                     .and_then(|res| res)
-            }
-        });
-        let mirror_results = futures::future::join_all(fetch_futures).await;
-
-        let mut candidates = Vec::new();
-        for cand_list in mirror_results.into_iter().flatten() {
-            for (url, label, headers) in cand_list {
-                let score = hubcloud::score(&url, &label, intent);
-                candidates.push((score, url, label, headers));
-            }
+            });
         }
-        candidates.sort_by_key(|cand| cand.0);
-        let mut unique_candidates = Vec::new();
+
+        let mut preflight_tasks = futures::stream::FuturesUnordered::new();
         let mut seen = std::collections::HashSet::new();
-        for (cand_score, url, label, headers) in candidates {
-            if seen.insert(url.clone()) {
-                unique_candidates.push((cand_score, url, label, headers));
+        let mut spawned_preflights = 0usize;
+        let mut fallbacks = Vec::new();
+
+        loop {
+            tokio::select! {
+                Some(resolve_res) = resolve_tasks.next(), if !resolve_tasks.is_empty() => {
+                    if let Ok(mut cand_list) = resolve_res {
+                        cand_list.sort_by_key(|(url, label, _)| hubcloud::score(url, label, intent));
+                        for (url, label, headers) in cand_list {
+                            if spawned_preflights >= 6 || !seen.insert(url.clone()) {
+                                continue;
+                            }
+                            spawned_preflights += 1;
+                            let cand_score = hubcloud::score(&url, &label, intent);
+                            let this = self.clone();
+                            let mut merged = headers;
+                            if !merged
+                                .iter()
+                                .any(|(name, _)| name.eq_ignore_ascii_case("referer"))
+                            {
+                                merged.push(("Referer".to_string(), referer.clone()));
+                            }
+                            if !merged
+                                .iter()
+                                .any(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+                            {
+                                merged.push(("User-Agent".to_string(), BROWSER_UA.to_string()));
+                            }
+                            preflight_tasks.push(async move {
+                                let (playable_url, is_seekable) =
+                                    this.preflight_with_seekable(&url, &merged).await?;
+                                let resolved_score =
+                                    cand_score.min(hubcloud::score(&playable_url, &label, intent));
+                                Ok::<_, FourKHdHubError>((
+                                    is_seekable,
+                                    resolved_score,
+                                    playable_url,
+                                    label,
+                                    merged,
+                                ))
+                            });
+                        }
+                    }
+                }
+                Some(preflight_res) = preflight_tasks.next(), if !preflight_tasks.is_empty() => {
+                    if let Ok((is_seekable, resolved_score, playable_url, label, headers)) =
+                        preflight_res
+                    {
+                        if is_seekable && resolved_score <= 1 {
+                            log::info!(
+                                "4KHDHub seekable mirror playable: {label} ({})",
+                                crate::logging::sanitize_url(&playable_url)
+                            );
+                            return Ok(PlaybackSource {
+                                provider: ProviderKind::FourKHdHub,
+                                url: playable_url,
+                                headers,
+                                subtitle: None,
+                                source_label: label,
+                                max_height: None,
+                            });
+                        }
+                        fallbacks.push((is_seekable, resolved_score, playable_url, label, headers));
+                    }
+                }
+                else => break,
             }
         }
 
-        if unique_candidates.is_empty() {
+        if spawned_preflights == 0 {
             return Err(FourKHdHubError::NoPlayableMirror(
                 "no working mirror links extracted".into(),
             ));
         }
-
-        use futures::StreamExt;
-        let mut preflight_tasks = futures::stream::FuturesUnordered::new();
-        for (cand_score, url, label, headers) in unique_candidates.into_iter().take(6) {
-            let this = self.clone();
-            let mut merged = headers;
-            if !merged
-                .iter()
-                .any(|(name, _)| name.eq_ignore_ascii_case("referer"))
-            {
-                merged.push(("Referer".to_string(), referer.clone()));
-            }
-            if !merged
-                .iter()
-                .any(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
-            {
-                merged.push(("User-Agent".to_string(), BROWSER_UA.to_string()));
-            }
-            preflight_tasks.push(async move {
-                let (playable_url, is_seekable) =
-                    this.preflight_with_seekable(&url, &merged).await?;
-                let resolved_score = cand_score.min(hubcloud::score(&playable_url, &label, intent));
-                Ok::<_, FourKHdHubError>((is_seekable, resolved_score, playable_url, label, merged))
-            });
-        }
-
-        let mut fallbacks = Vec::new();
-        while let Some(res) = preflight_tasks.next().await {
-            if let Ok((is_seekable, resolved_score, playable_url, label, headers)) = res {
-                if is_seekable && resolved_score <= 1 {
-                    log::info!(
-                        "4KHDHub seekable mirror playable: {label} ({})",
-                        crate::logging::sanitize_url(&playable_url)
-                    );
-                    return Ok(PlaybackSource {
-                        provider: ProviderKind::FourKHdHub,
-                        url: playable_url,
-                        headers,
-                        subtitle: None,
-                        source_label: label,
-                        max_height: None,
-                    });
-                }
-                fallbacks.push((is_seekable, resolved_score, playable_url, label, headers));
-            }
-        }
-
         fallbacks
             .sort_by_key(|(is_seekable, resolved_score, _, _, _)| (!*is_seekable, *resolved_score));
         if let Some((_, _, playable_url, label, headers)) = fallbacks.into_iter().next() {
