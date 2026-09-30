@@ -1,5 +1,5 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Span,
 };
 
@@ -78,19 +78,12 @@ pub fn resolution_badge_spans<'a>(
     }
 
     let is_light = theme.is_light;
+    let selected_fg = theme.crust_color();
     let (badge_bg, contrast_fg, label) = match resolution {
         -1 => {
             let accent_color = theme.lavender.fg.unwrap_or(theme.base);
             if is_selected {
-                (
-                    accent_color,
-                    if is_light {
-                        Color::White
-                    } else {
-                        theme.crust_color()
-                    },
-                    " Multi ",
-                )
+                (accent_color, selected_fg, " Multi ")
             } else if is_light {
                 (theme.surface2_color(), accent_color, " Multi ")
             } else {
@@ -100,15 +93,7 @@ pub fn resolution_badge_spans<'a>(
         2160 | 4320 => {
             let accent_color = theme.rating.fg.unwrap_or(theme.base);
             if is_selected {
-                (
-                    accent_color,
-                    if is_light {
-                        Color::White
-                    } else {
-                        theme.crust_color()
-                    },
-                    "  4K   ",
-                )
+                (accent_color, selected_fg, "  4K   ")
             } else if is_light {
                 (theme.surface2_color(), accent_color, "  4K   ")
             } else {
@@ -118,15 +103,7 @@ pub fn resolution_badge_spans<'a>(
         1080 => {
             let accent_color = theme.sapphire.fg.unwrap_or(theme.base);
             if is_selected {
-                (
-                    accent_color,
-                    if is_light {
-                        Color::White
-                    } else {
-                        theme.crust_color()
-                    },
-                    " 1080p ",
-                )
+                (accent_color, selected_fg, " 1080p ")
             } else if is_light {
                 (theme.surface2_color(), accent_color, " 1080p ")
             } else {
@@ -136,15 +113,7 @@ pub fn resolution_badge_spans<'a>(
         720 => {
             let accent_color = theme.teal.fg.unwrap_or(theme.base);
             if is_selected {
-                (
-                    accent_color,
-                    if is_light {
-                        Color::White
-                    } else {
-                        theme.crust_color()
-                    },
-                    " 720p  ",
-                )
+                (accent_color, selected_fg, " 720p  ")
             } else if is_light {
                 (theme.surface2_color(), accent_color, " 720p  ")
             } else {

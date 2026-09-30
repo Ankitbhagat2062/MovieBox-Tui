@@ -360,15 +360,14 @@ impl MovieBoxService {
         {
             return Some(img);
         }
-        let bytes = self.fetch_poster_bytes(url).await?;
+        let bytes = Arc::<[u8]>::from(self.fetch_poster_bytes(url).await?);
         let ns = namespace.to_string();
         let id_owned = id.to_string();
-        let bytes_clone = bytes.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::cache::set_namespaced_image_cache(&ns, &id_owned, &bytes_clone);
-        })
-        .await;
-        decode_poster(bytes).await
+        let bytes_for_cache = Arc::clone(&bytes);
+        tokio::task::spawn_blocking(move || {
+            crate::cache::set_namespaced_image_cache(&ns, &id_owned, &bytes_for_cache);
+        });
+        decode_poster_arc(bytes).await
     }
 
     pub async fn download_subtitle_file(
@@ -438,6 +437,21 @@ impl MovieBoxService {
 }
 
 pub async fn decode_poster(bytes: Vec<u8>) -> Option<Arc<image::DynamicImage>> {
+    tokio::task::spawn_blocking(move || {
+        let img = image::load_from_memory(&bytes).ok()?;
+        const MAX_DIM: u32 = 512;
+        let downscaled = if img.width().max(img.height()) <= MAX_DIM {
+            img
+        } else {
+            img.resize(MAX_DIM, MAX_DIM, image::imageops::FilterType::Triangle)
+        };
+        Some(Arc::new(downscaled))
+    })
+    .await
+    .ok()?
+}
+
+async fn decode_poster_arc(bytes: Arc<[u8]>) -> Option<Arc<image::DynamicImage>> {
     tokio::task::spawn_blocking(move || {
         let img = image::load_from_memory(&bytes).ok()?;
         const MAX_DIM: u32 = 512;

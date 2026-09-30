@@ -321,12 +321,59 @@ impl App {
         let service = self.service.clone();
         tokio::spawn(async move {
             let is_android = matches!(kind, crate::tui::state::PlayerKind::AndroidIntent);
+            let is_dash = crate::player::is_dash_url(&link);
+            let has_extra_headers = headers.iter().any(|(name, _)| {
+                !name.eq_ignore_ascii_case("referer") && !name.eq_ignore_ascii_case("user-agent")
+            });
+            let eager_proxy = is_dash
+                || (matches!(
+                    kind,
+                    crate::tui::state::PlayerKind::Vlc
+                        | crate::tui::state::PlayerKind::AndroidIntent
+                ) && has_extra_headers);
+            let sidecar_sub = if is_android {
+                subtitle.as_deref()
+            } else {
+                None
+            };
+
+            let eager_sidecar_fut = async {
+                if eager_proxy {
+                    let link_c = link.clone();
+                    let headers_c = headers.clone();
+                    let sub_c = sidecar_sub.map(str::to_string);
+                    tokio::task::spawn_blocking(move || {
+                        crate::proxy::spawn_sidecar(
+                            &link_c,
+                            &headers_c,
+                            sub_c.as_deref(),
+                            max_height,
+                        )
+                    })
+                    .await
+                    .ok()
+                } else {
+                    None
+                }
+            };
+
+            let sub_fut = async {
+                if let Some(url) = &subtitle {
+                    Some(
+                        service
+                            .download_subtitle_file(url, &headers, preferred_sub_name.as_deref())
+                            .await,
+                    )
+                } else {
+                    None
+                }
+            };
+
+            let (eager_sidecar_res, sub_res) = tokio::join!(eager_sidecar_fut, sub_fut);
+
             let mut local_subtitle = subtitle.clone();
             let mut temporary_subtitle = None;
-            if let Some(url) = &subtitle {
-                let download_res = service
-                    .download_subtitle_file(url, &headers, preferred_sub_name.as_deref())
-                    .await;
+            if let (Some(url), Some(download_res)) = (&subtitle, sub_res) {
                 match download_res {
                     Ok(path) => {
                         local_subtitle = Some(path.to_string_lossy().into_owned());
@@ -358,28 +405,32 @@ impl App {
                 && local_subtitle
                     .as_deref()
                     .is_some_and(|p| p.starts_with("/data/data/com.termux/"));
-            let is_dash = crate::player::is_dash_url(&link);
-            let has_extra_headers = headers.iter().any(|(name, _)| {
-                !name.eq_ignore_ascii_case("referer") && !name.eq_ignore_ascii_case("user-agent")
-            });
-            let needs_proxy = is_dash
-                || (matches!(
-                    kind,
-                    crate::tui::state::PlayerKind::Vlc
-                        | crate::tui::state::PlayerKind::AndroidIntent
-                ) && has_extra_headers)
+            let needs_proxy = eager_proxy
                 || (is_android
                     && subtitle.is_some()
                     && (local_subtitle.is_none() || android_sub_is_private));
-            let sidecar_sub = if is_android {
-                subtitle.as_deref()
-            } else {
-                None
-            };
 
             let mut sidecar_child = None;
             let (effective_link, effective_subtitle) = if needs_proxy {
-                match crate::proxy::spawn_sidecar(&link, &headers, sidecar_sub, max_height) {
+                let sidecar_outcome = match eager_sidecar_res {
+                    Some(res) => res,
+                    None => {
+                        let link_c = link.clone();
+                        let headers_c = headers.clone();
+                        let sub_c = sidecar_sub.map(str::to_string);
+                        tokio::task::spawn_blocking(move || {
+                            crate::proxy::spawn_sidecar(
+                                &link_c,
+                                &headers_c,
+                                sub_c.as_deref(),
+                                max_height,
+                            )
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(format!("join error: {e}")))
+                    }
+                };
+                match sidecar_outcome {
                     Ok((local_url, sc_child)) => {
                         sidecar_child = Some(sc_child);
                         let sub_url = if is_android {

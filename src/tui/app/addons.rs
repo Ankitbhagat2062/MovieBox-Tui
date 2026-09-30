@@ -51,11 +51,15 @@ impl App {
                                     installed.version.as_deref().unwrap_or("1.0.0")
                                 )))
                                 .ok();
-                            let mut addons = crate::config::load_addons();
-                            addons
-                                .retain(|existing| existing.manifest_url != installed.manifest_url);
-                            addons.push(installed);
-                            crate::config::save_addons(&addons);
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let mut addons = crate::config::load_addons();
+                                addons.retain(|existing| {
+                                    existing.manifest_url != installed.manifest_url
+                                });
+                                addons.push(installed);
+                                crate::config::save_addons(&addons);
+                            })
+                            .await;
                             sender.send(Action::ShowAddonManager).ok();
                         }
                         Err(err) => {

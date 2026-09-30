@@ -213,8 +213,7 @@ fn decode_greenmotors_payload(payload: &str) -> Option<String> {
 
 fn extract_hubcloud_drive_url(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
-    let links = Selector::parse("a[href]").ok()?;
-    document.select(&links).find_map(|node| {
+    document.select(&SEL_LINKS).find_map(|node| {
         let raw = node.value().attr("href")?;
         let url = Url::parse(raw).ok()?;
         let host = url.host_str()?;

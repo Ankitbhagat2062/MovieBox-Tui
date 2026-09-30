@@ -695,6 +695,10 @@ pub(crate) fn selection_style(theme: &Theme, basic_terminal: bool) -> Style {
         Style::default()
             .fg(theme.highlight.fg.unwrap_or(theme.base))
             .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+    } else if theme.is_light {
+        let bg = theme.surface0_color();
+        let fg = theme.text.fg.unwrap_or(theme.base);
+        Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD)
     } else {
         let bg = theme.surface1_color();
         let fg = theme

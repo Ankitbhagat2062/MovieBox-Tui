@@ -132,7 +132,7 @@ interval, forwarding them into the action channel (capacity 128).
 - Background tasks send `Action` messages back (e.g. `SearchSuccess`,
   `EpisodeStreamsReady`, `DownloadCompleted`), which `handle_action` consumes.
 
-## Data flow — a typical search
+## Data flow: a typical search
 
 1. User types a query; the `Key` handler updates `search_query` and sends `Action::Search`.
 2. `handle_action` resolves the active provider, dispatches to the provider client
@@ -154,13 +154,13 @@ interval, forwarding them into the action channel (capacity 128).
 
 ## Configuration and persistence
 
-- `config.json` — settings (mode persistence, mode toggles, theme, provider, auto-update, `default_player`, download directory, BDIX) in the config dir.
-- `addons_config.json` — installed HTTP community addons in the config dir.
-- `tv_config.json` — user M3U playlist sources (URLs or file paths) in the config dir.
-- `history.json` — watch history in the system data dir.
+- `config.json`: settings (mode persistence, mode toggles, theme, provider, auto-update, `default_player`, download directory, BDIX) in the config dir.
+- `addons_config.json`: installed HTTP community addons in the config dir.
+- `tv_config.json`: user M3U playlist sources (URLs or file paths) in the config dir.
+- `history.json`: watch history in the system data dir.
 - `favorites.json`: starred titles in the system data dir, independent of `history.json`.
-- `playback/` — temporary playback states for session crash/kill reconciliation in the system data dir.
-- `scripts/` — bundled player scripts (`moviebox_tracker.lua`) in the system data dir.
+- `playback/`: temporary playback states for session crash/kill reconciliation in the system data dir.
+- `scripts/`: bundled player scripts (`moviebox_tracker.lua`) in the system data dir.
 - Cache lives under the system cache dir, keyed per provider.
 - Logs live under the system data dir with rotation.
 

@@ -128,7 +128,10 @@ impl ColorSupport {
             if std::env::var("WT_SESSION").is_ok()
                 || std::env::var("WEZTERM_EXECUTABLE").is_ok()
                 || std::env::var("ALACRITTY_WINDOW_ID").is_ok()
+                || std::env::var("ALACRITTY_SOCKET").is_ok()
                 || std::env::var("TILIX_ID").is_ok()
+                || std::env::var("TERMUX_VERSION").is_ok()
+                || std::env::var("KONSOLE_VERSION").is_ok()
                 || std::env::var("VTE_VERSION")
                     .ok()
                     .is_some_and(|v| is_vte_version_truecolor(&v))
@@ -297,8 +300,10 @@ impl Theme {
             ThemeKind::Mocha => Self::mocha(),
         };
         match ColorSupport::current() {
+            ColorSupport::NoColor => Self::monochrome(base.is_light),
+            ColorSupport::Basic => Self::fallback(base.is_light),
             ColorSupport::Color256 => base.quantized_to_256(),
-            _ => base,
+            ColorSupport::Truecolor => base,
         }
     }
     pub fn palette_swatch_spans(theme_name: &str, basic_terminal: bool) -> Vec<Span<'static>> {
@@ -309,12 +314,16 @@ impl Theme {
             return vec![Span::styled("* * *", sample.text_dim)];
         }
 
-        let accent_color = sample.accent.fg.unwrap_or(Color::Cyan);
+        let accent_color = sample
+            .accent
+            .fg
+            .or(sample.highlight.fg)
+            .unwrap_or(sample.base);
         let surface_color = sample
             .surface0
             .fg
             .or(sample.surface1.fg)
-            .unwrap_or(Color::DarkGray);
+            .unwrap_or(sample.base);
         let base_color = sample.base;
 
         vec![
@@ -395,6 +404,7 @@ impl Theme {
 
     pub fn monochrome(is_light: bool) -> Self {
         let foreground = if is_light { Color::Black } else { Color::White };
+        let inverse = if is_light { Color::White } else { Color::Black };
         let dim = if is_light {
             Color::DarkGray
         } else {
@@ -429,8 +439,8 @@ impl Theme {
             overlay0: Style::default().fg(Color::DarkGray),
             overlay1: Style::default().fg(dim),
             overlay2: Style::default().fg(dim),
-            mantle: Style::default().fg(foreground),
-            crust: Style::default().fg(foreground),
+            mantle: Style::default().fg(inverse),
+            crust: Style::default().fg(inverse),
             is_light,
         }
     }
@@ -472,7 +482,7 @@ impl Theme {
                 maroon: Style::default().fg(Color::Red),
                 surface0: Style::default().fg(Color::DarkGray),
                 surface1: Style::default().fg(Color::DarkGray),
-                surface2: Style::default().fg(Color::Black),
+                surface2: Style::default().fg(Color::Gray),
                 overlay0: Style::default().fg(Color::DarkGray),
                 overlay1: Style::default().fg(Color::DarkGray),
                 overlay2: Style::default().fg(Color::Black),

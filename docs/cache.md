@@ -33,6 +33,6 @@ The envelope stores the expiration timestamp (`expires_at: u64`) alongside the s
 
 ## Durability & Safety
 
-- **Atomic File Writes**: All cache entries are written to a temporary sidecar file (`.tmp.<pid>.<salt>`) and renamed atomically to destination, preventing corruption if interrupted.
+- **Atomic File Writes**: All cache entries write to a temporary sidecar file (`.tmp-<pid>-<stamp>`) and rename atomically to the destination so interrupted writes never corrupt cache files.
 - **Automatic Purging**: Stale cache entries older than 7 days are automatically removed by a background worker at startup.
 - **Manual Purge**: Enter `/settings` → **Maintenance** → **Clear Disk Cache** to immediately wipe all cached files, images, and playlist snapshots.

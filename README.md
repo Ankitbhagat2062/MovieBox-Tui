@@ -20,7 +20,7 @@
 - **Streaming:** Movies, TV series, anime, Asian dramas, and community Stremio addons across multiple native providers.
 - **Live TV:** M3U playlist import with channel categories, EPG support, and search.
 - **Resolution Picker:** Direct stream quality selection (`4K`, `1080p`, `720p`, `480p`, `Auto`) before playback.
-- **Hardware Players:** Seamless launch in `mpv`, `VLC`, or `IINA` with custom auth header and cookie forwarding.
+- **Hardware Players:** Direct launch in `mpv`, `VLC`, or `IINA` with custom auth header and cookie forwarding.
 - **Batch Downloader:** Multi-segment concurrent downloader with HTTP range pause and resume for episodes and full seasons.
 - **Subtitle Picker:** Multi-language subtitle tracks extracted and selectable via an interactive picker before playback or download.
 - **Terminal UI:** Vim navigation, mouse interaction, slash command palette (`/help`, `/settings`), and 9 built-in themes.

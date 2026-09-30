@@ -772,19 +772,22 @@ async fn fetch_or_get_segment(
         return Ok((reqwest::StatusCode::OK, ct, data));
     }
 
-    let (is_owner, notify) = {
-        let mut lock = cache.in_flight.lock().unwrap();
-        if let Some(existing) = lock.get(url) {
-            (false, Arc::clone(existing))
-        } else {
-            let n = Arc::new(tokio::sync::Notify::new());
-            lock.insert(url.to_string(), Arc::clone(&n));
-            (true, n)
+    let (is_owner, notify, notified_fut) = match cache.in_flight.lock() {
+        Ok(mut lock) => {
+            if let Some(existing) = lock.get(url) {
+                let n = Arc::clone(existing);
+                (false, Arc::clone(&n), Some(n.notified_owned()))
+            } else {
+                let n = Arc::new(tokio::sync::Notify::new());
+                lock.insert(url.to_string(), Arc::clone(&n));
+                (true, n, None)
+            }
         }
+        Err(_) => (true, Arc::new(tokio::sync::Notify::new()), None),
     };
 
-    if !is_owner {
-        let _ = tokio::time::timeout(Duration::from_secs(15), notify.notified()).await;
+    if let Some(fut) = notified_fut {
+        let _ = tokio::time::timeout(Duration::from_secs(15), fut).await;
         if let Some((ct, data)) = cache.get(url) {
             return Ok((reqwest::StatusCode::OK, ct, data));
         }

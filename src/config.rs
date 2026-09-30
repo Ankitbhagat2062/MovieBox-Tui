@@ -83,33 +83,33 @@ pub fn config_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("MOVIEBOX_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
     }
-    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
-        return Some(sandbox.join("config").join(APP_NAME));
-    }
-    if let Some(dir) = dirs::config_dir() {
-        return Some(dir.join(APP_NAME));
-    }
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        let p = PathBuf::from(xdg);
-        if !p.as_os_str().is_empty() {
-            return Some(p.join(APP_NAME));
+    static DEFAULT_CONFIG_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
+        if let Some(dir) = dirs::config_dir() {
+            return dir.join(APP_NAME);
         }
-    }
-    if let Ok(prefix) = std::env::var("PREFIX") {
-        let p = PathBuf::from(prefix).join("etc").join(APP_NAME);
-        if p.exists() {
-            return Some(p);
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            let p = PathBuf::from(xdg);
+            if !p.as_os_str().is_empty() {
+                return p.join(APP_NAME);
+            }
         }
-    }
-    if let Some(dir) = dirs::home_dir().map(|h| h.join(".config").join(APP_NAME)) {
-        return Some(dir);
-    }
-    let fallback = std::env::temp_dir().join(APP_NAME).join("config");
-    log::warn!(
-        "unable to locate user config directory, falling back to {}",
-        fallback.display()
-    );
-    Some(fallback)
+        if let Ok(prefix) = std::env::var("PREFIX") {
+            let p = PathBuf::from(prefix).join("etc").join(APP_NAME);
+            if p.exists() {
+                return p;
+            }
+        }
+        if let Some(dir) = dirs::home_dir().map(|h| h.join(".config").join(APP_NAME)) {
+            return dir;
+        }
+        let fallback = std::env::temp_dir().join(APP_NAME).join("config");
+        log::warn!(
+            "unable to locate user config directory, falling back to {}",
+            fallback.display()
+        );
+        fallback
+    });
+    Some(DEFAULT_CONFIG_DIR.clone())
 }
 
 pub fn data_dir() -> Option<PathBuf> {
@@ -119,33 +119,33 @@ pub fn data_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("MOVIEBOX_DATA_DIR") {
         return Some(PathBuf::from(dir));
     }
-    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
-        return Some(sandbox.join("data").join(APP_NAME));
-    }
-    if let Some(dir) = dirs::data_dir() {
-        return Some(dir.join(APP_NAME));
-    }
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        let p = PathBuf::from(xdg);
-        if !p.as_os_str().is_empty() {
-            return Some(p.join(APP_NAME));
+    static DEFAULT_DATA_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
+        if let Some(dir) = dirs::data_dir() {
+            return dir.join(APP_NAME);
         }
-    }
-    if let Ok(prefix) = std::env::var("PREFIX") {
-        let p = PathBuf::from(prefix).join("var").join("lib").join(APP_NAME);
-        if p.exists() {
-            return Some(p);
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            let p = PathBuf::from(xdg);
+            if !p.as_os_str().is_empty() {
+                return p.join(APP_NAME);
+            }
         }
-    }
-    if let Some(dir) = dirs::home_dir().map(|h| h.join(".local").join("share").join(APP_NAME)) {
-        return Some(dir);
-    }
-    let fallback = std::env::temp_dir().join(APP_NAME).join("data");
-    log::warn!(
-        "unable to locate user data directory, falling back to {}",
-        fallback.display()
-    );
-    Some(fallback)
+        if let Ok(prefix) = std::env::var("PREFIX") {
+            let p = PathBuf::from(prefix).join("var").join("lib").join(APP_NAME);
+            if p.exists() {
+                return p;
+            }
+        }
+        if let Some(dir) = dirs::home_dir().map(|h| h.join(".local").join("share").join(APP_NAME)) {
+            return dir;
+        }
+        let fallback = std::env::temp_dir().join(APP_NAME).join("data");
+        log::warn!(
+            "unable to locate user data directory, falling back to {}",
+            fallback.display()
+        );
+        fallback
+    });
+    Some(DEFAULT_DATA_DIR.clone())
 }
 
 pub fn cache_dir() -> PathBuf {
@@ -155,30 +155,30 @@ pub fn cache_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("MOVIEBOX_CACHE_DIR") {
         return PathBuf::from(dir);
     }
-    if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {
-        return sandbox.join("cache").join(APP_NAME);
-    }
-    if let Some(dir) = dirs::cache_dir() {
-        return dir.join(APP_NAME);
-    }
-    if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
-        let p = PathBuf::from(xdg);
-        if !p.as_os_str().is_empty() {
-            return p.join(APP_NAME);
+    static DEFAULT_CACHE_DIR: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
+        if let Some(dir) = dirs::cache_dir() {
+            return dir.join(APP_NAME);
         }
-    }
-    if let Ok(prefix) = std::env::var("PREFIX") {
-        let p = PathBuf::from(prefix)
-            .join("var")
-            .join("cache")
-            .join(APP_NAME);
-        if p.exists() {
-            return p;
+        if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+            let p = PathBuf::from(xdg);
+            if !p.as_os_str().is_empty() {
+                return p.join(APP_NAME);
+            }
         }
-    }
-    dirs::home_dir()
-        .map(|h| h.join(".cache").join(APP_NAME))
-        .unwrap_or_else(|| std::env::temp_dir().join(APP_NAME))
+        if let Ok(prefix) = std::env::var("PREFIX") {
+            let p = PathBuf::from(prefix)
+                .join("var")
+                .join("cache")
+                .join(APP_NAME);
+            if p.exists() {
+                return p;
+            }
+        }
+        dirs::home_dir()
+            .map(|h| h.join(".cache").join(APP_NAME))
+            .unwrap_or_else(|| std::env::temp_dir().join(APP_NAME))
+    });
+    DEFAULT_CACHE_DIR.clone()
 }
 
 pub fn logs_dir() -> PathBuf {

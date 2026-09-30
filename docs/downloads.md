@@ -24,20 +24,21 @@ Upon completion, temporary sidecars are verified and renamed atomically to the t
 
 - Press **`d`** on any stream in the Details screen to start downloading immediately.
 - Press **`x`** or **`X`** during an active download to cancel or pause the transfer. Partial `.part` data is preserved on disk for resumption.
-- Downloads run cooperatively in the background, allowing you to browse or search without interrupting transfers.
+- Downloads run cooperatively in the background so you can browse or search while transfers finish.
 
 ## Header Forwarding
 
-Authenticated streams (such as MovieBox DASH manifests or 4KHDHub mirrors) automatically forward required headers (`User-Agent`, `Referer`, signed CloudFront cookies) to download workers, ensuring CDN transfers complete without `403 Forbidden` errors.
+Authenticated streams (such as MovieBox DASH manifests or 4KHDHub mirrors) forward required headers (`User-Agent`, `Referer`, signed CloudFront cookies) to download workers so CDN transfers complete without `403 Forbidden` errors.
 
 ## DASH Streams (`yt-dlp`)
 
-MovieBox DASH streams require `yt-dlp` and `ffmpeg` to download and mux adaptive video/audio representations:
+MovieBox DASH streams require `yt-dlp` and `ffmpeg` to download and mux adaptive video and audio representations:
 
 - **Windows**: `winget install yt-dlp.yt-dlp Gyan.FFmpeg`
 - **macOS**: `brew install yt-dlp ffmpeg`
 - **Android (Termux)**: `pkg install yt-dlp ffmpeg`
 - **Linux**: Install `yt-dlp` and `ffmpeg` via system package manager.
-The downloader preflights both binaries before launching the transfer, failing fast with platform-specific installation commands if either is absent. Transferred fragments are pulled with `--concurrent-fragments 8` and `--http-chunk-size 95K` (keeping individual range sub-requests under Tengine's `limit_rate_after 96k` throttle boundary) alongside resilient retry bounds (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`). Any subprocess errors during transfer capture and display the underlying `yt-dlp` error diagnostics directly in the failure notification.
 
-All other providers (4KHDHub, Dramachi, BDIX, DhakaFlix, CircleFTP, Stremio Addons, TV mode) download directly through the internal multi-segment HTTP engine (4–12 concurrent workers writing in-place to the pre-allocated `.part` file).
+The downloader checks both binaries before starting the transfer and reports which binary is missing if either is absent. Fragments are pulled with `--concurrent-fragments 8` and `--http-chunk-size 95K` (keeping individual range sub-requests under Tengine's `limit_rate_after 96k` throttle boundary) alongside retry bounds (`--fragment-retries 10`, `--retries 5`, `--socket-timeout 30`). Subprocess errors during transfer report the underlying `yt-dlp` diagnostic in the failure notification.
+
+All other providers (4KHDHub, Dramachi, BDIX, DhakaFlix, CircleFTP, Stremio Addons, TV mode) download directly through the internal multi-segment HTTP engine (4 to 12 concurrent workers writing in-place to the pre-allocated `.part` file).

@@ -24,11 +24,11 @@ You can set a default player via `/settings` (Media Player), or override it with
 ```bash
 mpv --autofit=WxH --geometry=50%:50% --hwdec=auto-safe --stream-buffer-size=4M --idle=no --keep-open=no [OPTIONS] <url>
 ```
-- **Tracking**: Injects `moviebox_tracker.lua` to track playback progress, total duration, and chosen stream filename, auto-restoring the exact stream mirror upon re-opening multi-stream titles (such as 4KHDHub releases).
-- **Hardware Decoding & Direct Streams**: Enables `--hwdec=auto-safe` for hardware-accelerated 4K 10-bit HEVC HDR decoding and passes `--ytdl=no` on non-DASH direct streams (`.mkv`, `.mp4`, `.m3u8`) for immediate native `ffmpeg` demuxer startup.
-- **Headers**: Custom stream headers (`User-Agent`, `Referer`) are passed via `--http-header-fields`.
-- **DASH Manifests & Loopback Acceleration**: DASH `.mpd` streams route through the local `StreamRelay` proxy (`127.0.0.1:<port>`), which caches rewritten manifests in RAM, warm-prefetches initialization and opening fragments on sidecar startup, fetches `.m4s` segments via parallel `95 KB` HTTP `Range` sub-requests, and prefetches both the next 3 video segments (`N+1..N+3`) and matching audio segments (`chunk-stream3-N..N+1`).
-- **Subtitles**: Remote subtitles are pre-downloaded to temporary storage and passed via `--sub-file=<path>`, falling back to the remote URL if local download fails.
+- **Tracking**: Injects `moviebox_tracker.lua` to record playback progress, total duration, and chosen stream filename, then restores that stream mirror when re-opening multi-stream titles.
+- **Hardware Decoding & Direct Streams**: Enables `--hwdec=auto-safe` for hardware-accelerated 4K 10-bit HEVC HDR decoding and passes `--ytdl=no` on non-DASH direct streams (`.mkv`, `.mp4`, `.m3u8`) for direct `ffmpeg` demuxer startup.
+- **Headers**: Passes custom stream headers (`User-Agent`, `Referer`) via `--http-header-fields`.
+- **DASH Manifests & Loopback Acceleration**: Routes DASH `.mpd` streams through the local `StreamRelay` proxy (`127.0.0.1:<port>`), which caches rewritten manifests in RAM, warm-prefetches initialization and opening fragments on sidecar startup, fetches `.m4s` segments via parallel `95 KB` HTTP `Range` sub-requests, and prefetches the next 3 video segments (`N+1..N+3`) and matching audio segments (`chunk-stream3-N..N+1`).
+- **Subtitles**: Pre-downloads remote subtitles to temporary storage in parallel with sidecar startup and passes `--sub-file=<path>`, with fallback to the remote URL if local download fails.
 
 ### VLC
 ```bash
@@ -55,11 +55,11 @@ termux-open --chooser --content-type video/* <url>
 ## Watch History & Resume
 
 - **Position Resumption**: In-progress items launch with `--start=<seconds>` (`mpv`/`IINA`) or `--start-time=<seconds>` (`VLC`).
-- **Completion Detection**: Reaching ≥ 90% or stream EOF marks media as completed.
-- **State Reconciliation**: `mpv` and `IINA` sync playback progress via background IPC state files, preventing wall-clock drift during pauses or seeks.
+- **Completion Detection**: Reaching 90% or stream EOF marks media as completed.
+- **State Reconciliation**: `mpv` and `IINA` sync playback progress via background IPC state files so pauses or seeks do not cause wall-clock drift.
 
 ## Spawning & Process Safety
 
-- Players and the `StreamRelay` sidecar launch in fully detached OS sessions (`libc::setsid()` with `SIGHUP` ignored on Unix/macOS/Linux/Android, and `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` on Windows) so closing the terminal window or quitting `moviebox-tui` never terminates active video playback.
-- Player `stderr` is directed to a temporary log file rather than a parent pipe, preventing `SIGPIPE` / broken-pipe crashes when `moviebox-tui` exits while preserving full crash diagnostics when the TUI remains open.
-- Clean exits (VLC exit code `1` with empty stderr, or Unix `SIGTERM`) are recognized as normal exits and update watch history without false crash popups.
+- Players and the `StreamRelay` sidecar launch in detached OS sessions (`libc::setsid()` with `SIGHUP` ignored on Unix/macOS/Linux/Android, and `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` on Windows) so closing the terminal or quitting `moviebox-tui` does not stop active video playback.
+- Player `stderr` writes to a temporary log file so `moviebox-tui` can exit without triggering `SIGPIPE` crashes while still capturing crash diagnostics when the TUI stays open.
+- Clean exits (VLC exit code `1` with empty stderr, or Unix `SIGTERM`) count as normal exits and update watch history without false crash popups.

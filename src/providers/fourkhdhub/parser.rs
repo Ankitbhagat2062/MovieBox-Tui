@@ -39,6 +39,12 @@ static SEL_FILE_TITLE: LazyLock<Selector> =
 static SEL_LINK_HREF: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a[href]").unwrap());
 static SEL_BADGE_SIZE: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(".badge-size, .badge").unwrap());
+static SEL_OG_IMAGE: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("meta[property=\"og:image\"]").unwrap());
+static SEL_OG_TITLE: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("meta[property=\"og:title\"]").unwrap());
+static SEL_META_DESC: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("meta[name=\"description\"]").unwrap());
 
 pub fn parse_search(base: &Url, html: &str) -> Result<Vec<CatalogItem>, FourKHdHubError> {
     let document = Html::parse_document(html);
@@ -89,7 +95,7 @@ pub fn parse_details(id: &str, html: &str) -> Result<MediaDetails, FourKHdHubErr
         .select(&SEL_H1)
         .find_map(|node| text_of(Some(node)))
         .filter(|text| !text.is_empty())
-        .or_else(|| meta_content(&document, "meta[property=\"og:title\"]"))
+        .or_else(|| meta_content(&document, &SEL_OG_TITLE))
         .ok_or_else(|| FourKHdHubError::Parse("title missing".into()))?;
     let title = strip_trailing_year(&raw_title);
     let media_type = if id.contains("-series-") {
@@ -100,14 +106,14 @@ pub fn parse_details(id: &str, html: &str) -> Result<MediaDetails, FourKHdHubErr
     let description = document
         .select(&SEL_CONTENT_DESC)
         .find_map(|node| text_of(Some(node)))
-        .or_else(|| meta_content(&document, "meta[name=\"description\"]"));
+        .or_else(|| meta_content(&document, &SEL_META_DESC));
     let tagline = document
         .select(&SEL_TAGLINE)
         .find_map(|node| text_of(Some(node)));
     let imdb_rating = document
         .select(&SEL_IMDB)
         .find_map(|node| text_of(Some(node)));
-    let poster_url = meta_content(&document, "meta[property=\"og:image\"]");
+    let poster_url = meta_content(&document, &SEL_OG_IMAGE);
     let year = find_metadata(&document, "Release:")
         .and_then(|value| first_four_digit_year(&value))
         .or_else(|| {
@@ -271,10 +277,9 @@ fn text_of(node: Option<ElementRef<'_>>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-fn meta_content(document: &Html, query: &str) -> Option<String> {
-    let selector = Selector::parse(query).ok()?;
+fn meta_content(document: &Html, selector: &Selector) -> Option<String> {
     document
-        .select(&selector)
+        .select(selector)
         .next()
         .and_then(|node| node.value().attr("content"))
         .map(str::to_string)

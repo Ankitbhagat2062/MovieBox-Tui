@@ -77,7 +77,7 @@ pub fn set_typed_cache<T: Serialize + ?Sized>(path: &Path, expiry_secs: u64, dat
     let mut file_bytes = Vec::with_capacity(512);
     file_bytes.extend_from_slice(&CACHE_MAGIC);
     if rmp_serde::encode::write(&mut file_bytes, &envelope).is_ok() {
-        if let Err(error) = atomic_write_file(path, &file_bytes) {
+        if let Err(error) = atomic_write_cache_file(path, &file_bytes) {
             log::warn!(
                 "failed to write cache file {}: {error}",
                 crate::logging::sanitize_path(path)
@@ -116,6 +116,29 @@ pub fn atomic_write_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Resul
     let temporary = path.with_extension(format!("tmp-{}-{stamp}", std::process::id()));
     write_durable(&temporary, bytes)?;
     match durable_replace(&temporary, path, &format!("{stamp}-f")) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            Err(error)
+        }
+    }
+}
+
+pub fn atomic_write_cache_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = path.with_extension(format!("tmp-{}-{stamp}", std::process::id()));
+    fs::write(&temporary, bytes)?;
+    if fs::rename(&temporary, path).is_ok() {
+        return Ok(());
+    }
+    let _ = fs::remove_file(path);
+    match fs::rename(&temporary, path) {
         Ok(()) => Ok(()),
         Err(error) => {
             let _ = fs::remove_file(&temporary);
@@ -498,7 +521,7 @@ pub fn get_namespaced_image_cache(namespace: &str, id: &str) -> Option<Vec<u8>> 
 
 pub fn set_namespaced_image_cache(namespace: &str, id: &str, bytes: &[u8]) {
     let path = get_namespaced_image_path(namespace, id);
-    if let Err(error) = atomic_write_file(&path, bytes) {
+    if let Err(error) = atomic_write_cache_file(&path, bytes) {
         log::warn!(
             "failed to commit image cache to {}: {error}",
             crate::logging::sanitize_path(&path)

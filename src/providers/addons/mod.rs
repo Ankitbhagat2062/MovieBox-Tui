@@ -30,7 +30,9 @@ impl Provider for AddonClient {
     }
 
     async fn search(&self, query: &str, _page: usize) -> Result<Vec<CatalogItem>, ProviderError> {
-        let addons = crate::config::load_addons();
+        let addons = tokio::task::spawn_blocking(crate::config::load_addons)
+            .await
+            .unwrap_or_default();
         let catalog_addons: Vec<_> = addons
             .iter()
             .filter(|a| a.enabled && (a.provides_meta || a.provides_catalog))
@@ -81,7 +83,9 @@ impl Provider for AddonClient {
             _ => (None, id),
         };
 
-        let addons = crate::config::load_addons();
+        let addons = tokio::task::spawn_blocking(crate::config::load_addons)
+            .await
+            .unwrap_or_default();
         let mut target_addons: Vec<_> = addons
             .iter()
             .filter(|a| a.enabled && a.provides_meta)

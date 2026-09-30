@@ -4,7 +4,7 @@ This document describes the testing architecture, quality assurance procedures, 
 
 ## 1. Test Architecture
 
-The test suite runs in an isolated process sandbox (`TEST_SANDBOX_DIR` in `src/config.rs`) that redirects `config_dir()`, `data_dir()`, and `cache_dir()` to temporary directories and guards external browser launches (`open_external_url` in `src/net.rs`), ensuring tests never read, mutate, or delete host user files (`~/.config`, `~/.local/share`, `~/.cache`).
+The test suite runs in an isolated process sandbox (`TEST_SANDBOX_DIR` in `src/config.rs`) that redirects `config_dir()`, `data_dir()`, and `cache_dir()` to temporary directories and guards external browser launches (`open_external_url` in `src/net.rs`) so tests never read, mutate, or delete host user files (`~/.config`, `~/.local/share`, `~/.cache`).
 The MovieBox-TUI test architecture follows a strict separation of concerns:
 
 ```text

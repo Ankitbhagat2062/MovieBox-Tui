@@ -1287,7 +1287,7 @@ impl App {
                 if context.provider == ProviderKind::Addons {
                     let sender = self.action_sender.clone();
                     let client = self.service.addon_client.clone();
-                    let addons = crate::config::load_addons();
+                    let addons = self.state.installed_addons.clone();
                     let id = subject_id.clone();
                     let is_series = self
                         .state

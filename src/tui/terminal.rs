@@ -14,26 +14,31 @@ fn is_inside_tmux() -> bool {
 }
 
 fn outer_terminal_supports_graphics() -> bool {
-    if std::env::var("GHOSTTY_RESOURCES_DIR").is_ok() {
+    if std::env::var("GHOSTTY_RESOURCES_DIR").is_ok()
+        || std::env::var("KITTY_WINDOW_ID").is_ok()
+        || std::env::var("WEZTERM_EXECUTABLE").is_ok()
+        || std::env::var("ITERM_SESSION_ID").is_ok()
+        || std::env::var("ALACRITTY_LOG").is_ok()
+        || std::env::var("ALACRITTY_WINDOW_ID").is_ok()
+        || std::env::var("ALACRITTY_SOCKET").is_ok()
+        || std::env::var("KONSOLE_VERSION").is_ok()
+        || std::env::var("WT_SESSION").is_ok()
+    {
         return true;
     }
-    if std::env::var("KITTY_WINDOW_ID").is_ok() {
+    let term = env("TERM").to_ascii_lowercase();
+    if term.starts_with("foot")
+        || term.contains("kitty")
+        || term.contains("ghostty")
+        || term.contains("alacritty")
+    {
         return true;
     }
-    if std::env::var("WEZTERM_EXECUTABLE").is_ok() {
-        return true;
-    }
-    if std::env::var("ITERM_SESSION_ID").is_ok() {
-        return true;
-    }
-    if std::env::var("ALACRITTY_LOG").is_ok() || std::env::var("ALACRITTY_WINDOW_ID").is_ok() {
-        return true;
-    }
-    let term = env("TERM");
-    if term.starts_with("foot") {
-        return true;
-    }
-    false
+    let term_program = env("TERM_PROGRAM").to_ascii_lowercase();
+    matches!(
+        term_program.as_str(),
+        "ghostty" | "wezterm" | "iterm.app" | "vscode" | "rio"
+    )
 }
 
 pub fn should_query_images() -> bool {
@@ -76,8 +81,12 @@ pub fn should_query_images() -> bool {
         let is_modern_terminal = std::env::var("WT_SESSION").is_ok()
             || std::env::var("TERM_PROGRAM").is_ok()
             || std::env::var("ALACRITTY_LOG").is_ok()
+            || std::env::var("ALACRITTY_SOCKET").is_ok()
             || std::env::var("WEZTERM_EXECUTABLE").is_ok()
-            || std::env::var("GHOSTTY_RESOURCES_DIR").is_ok();
+            || std::env::var("GHOSTTY_RESOURCES_DIR").is_ok()
+            || term.contains("alacritty")
+            || term.contains("kitty")
+            || term.contains("ghostty");
         if !is_modern_terminal {
             return false;
         }
@@ -128,19 +137,23 @@ mod tests {
             std::env::set_var("MOVIEBOX_IMAGE_PROTOCOL", "kitty");
             assert!(should_query_images());
             std::env::remove_var("MOVIEBOX_IMAGE_PROTOCOL");
-            let saved_ghostty = std::env::var("GHOSTTY_RESOURCES_DIR").ok();
-            let saved_kitty = std::env::var("KITTY_WINDOW_ID").ok();
-            let saved_wezterm = std::env::var("WEZTERM_EXECUTABLE").ok();
-            let saved_iterm = std::env::var("ITERM_SESSION_ID").ok();
-            let saved_alacritty_log = std::env::var("ALACRITTY_LOG").ok();
-            let saved_alacritty_win = std::env::var("ALACRITTY_WINDOW_ID").ok();
+            let saved_vars = [
+                "GHOSTTY_RESOURCES_DIR",
+                "KITTY_WINDOW_ID",
+                "WEZTERM_EXECUTABLE",
+                "ITERM_SESSION_ID",
+                "ALACRITTY_LOG",
+                "ALACRITTY_WINDOW_ID",
+                "ALACRITTY_SOCKET",
+                "KONSOLE_VERSION",
+                "WT_SESSION",
+                "TERM_PROGRAM",
+            ]
+            .map(|k| (k, std::env::var(k).ok()));
 
-            std::env::remove_var("GHOSTTY_RESOURCES_DIR");
-            std::env::remove_var("KITTY_WINDOW_ID");
-            std::env::remove_var("WEZTERM_EXECUTABLE");
-            std::env::remove_var("ITERM_SESSION_ID");
-            std::env::remove_var("ALACRITTY_LOG");
-            std::env::remove_var("ALACRITTY_WINDOW_ID");
+            for (k, _) in &saved_vars {
+                std::env::remove_var(k);
+            }
 
             std::env::set_var("TMUX", "/tmp/tmux-1000/default,12345,0");
             assert!(!should_query_images());
@@ -154,23 +167,10 @@ mod tests {
             std::env::remove_var("MOVIEBOX_IMAGE_PROTOCOL");
             std::env::remove_var("TMUX");
 
-            if let Some(v) = saved_ghostty {
-                std::env::set_var("GHOSTTY_RESOURCES_DIR", v);
-            }
-            if let Some(v) = saved_kitty {
-                std::env::set_var("KITTY_WINDOW_ID", v);
-            }
-            if let Some(v) = saved_wezterm {
-                std::env::set_var("WEZTERM_EXECUTABLE", v);
-            }
-            if let Some(v) = saved_iterm {
-                std::env::set_var("ITERM_SESSION_ID", v);
-            }
-            if let Some(v) = saved_alacritty_log {
-                std::env::set_var("ALACRITTY_LOG", v);
-            }
-            if let Some(v) = saved_alacritty_win {
-                std::env::set_var("ALACRITTY_WINDOW_ID", v);
+            for (k, val) in saved_vars {
+                if let Some(v) = val {
+                    std::env::set_var(k, v);
+                }
             }
         }
     }

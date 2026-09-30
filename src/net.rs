@@ -87,43 +87,53 @@ pub fn http_client_builder() -> reqwest::ClientBuilder {
 }
 
 pub async fn probe_url(url: &str, timeout: std::time::Duration) -> bool {
-    let Ok(client) = http_client_builder_base()
-        .timeout(timeout)
-        .connect_timeout(timeout)
-        .build()
-    else {
-        return false;
-    };
-    match client.head(url).send().await {
-        Ok(resp) if resp.status().is_success() || resp.status().is_redirection() => return true,
-        Ok(resp) => {
+    static PROBE_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+        http_client_builder_base()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    });
+    match tokio::time::timeout(timeout, PROBE_CLIENT.head(url).send()).await {
+        Ok(Ok(resp)) if resp.status().is_success() || resp.status().is_redirection() => {
+            return true;
+        }
+        Ok(Ok(resp)) => {
             log::debug!(
                 "probe HEAD non-success for {}: {}",
                 crate::logging::sanitize_url(url),
                 resp.status()
             );
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             log::debug!(
                 "probe HEAD error for {}: {e}",
                 crate::logging::sanitize_url(url)
             );
         }
+        Err(_) => {
+            log::debug!(
+                "probe HEAD timed out for {}",
+                crate::logging::sanitize_url(url)
+            );
+        }
     }
-    match client
-        .get(url)
-        .header(reqwest::header::RANGE, "bytes=0-0")
-        .send()
-        .await
+    match tokio::time::timeout(
+        timeout,
+        PROBE_CLIENT
+            .get(url)
+            .header(reqwest::header::RANGE, "bytes=0-0")
+            .send(),
+    )
+    .await
     {
-        Ok(resp) => resp.status().is_success() || resp.status().is_redirection(),
-        Err(e) => {
+        Ok(Ok(resp)) => resp.status().is_success() || resp.status().is_redirection(),
+        Ok(Err(e)) => {
             log::debug!(
                 "probe GET error for {}: {e}",
                 crate::logging::sanitize_url(url)
             );
             false
         }
+        Err(_) => false,
     }
 }
 
