@@ -92,7 +92,7 @@ pub fn supports_headers(kind: PlayerKind, headers: &[(String, String)]) -> bool 
         return true;
     }
     #[cfg(target_os = "macos")]
-    if kind == PlayerKind::Iina && !matches!(iina_resolution(), Some(IinaResolution::Cli(_))) {
+    if kind == PlayerKind::Iina && matches!(iina_resolution(), Some(IinaResolution::AppFallback)) {
         return false;
     }
     match kind {
@@ -177,22 +177,10 @@ pub fn command(
             tracker,
             max_height,
         ),
-        #[cfg(target_os = "macos")]
         PlayerKind::Iina => iina_command(
             url,
             subtitle,
             headers,
-            window,
-            resume_seconds,
-            tracker,
-            max_height,
-        ),
-        #[cfg(not(target_os = "macos"))]
-        PlayerKind::Iina => mpv_command(
-            url,
-            subtitle,
-            headers,
-            false,
             window,
             resume_seconds,
             tracker,
@@ -650,7 +638,6 @@ fn iina_resolution() -> Option<IinaResolution> {
     detected
 }
 
-#[cfg(target_os = "macos")]
 #[allow(clippy::too_many_arguments)]
 fn iina_command(
     url: &str,
@@ -661,8 +648,8 @@ fn iina_command(
     tracker: Option<(&str, &str, usize, usize)>,
     max_height: Option<u64>,
 ) -> Command {
-    let resolution = iina_resolution();
-    let mut command = match resolution {
+    #[cfg(target_os = "macos")]
+    let mut command = match iina_resolution() {
         Some(IinaResolution::Cli(executable)) => {
             let mut c = Command::new(executable);
             c.arg("--keep-running").arg("--no-stdin");
@@ -675,6 +662,8 @@ fn iina_command(
         }
         None => Command::new("iina"),
     };
+    #[cfg(not(target_os = "macos"))]
+    let mut command = Command::new("iina");
     let mpv = mpv_command(
         url,
         subtitle,

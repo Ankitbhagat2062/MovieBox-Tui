@@ -10,6 +10,7 @@
   - Mounted `xdg-cache/moviebox-tui:ro`, `xdg-data/moviebox-tui`, and `/tmp:ro` in `flatpak run` while keeping custom user Flatpak flags so sandboxed `mpv` and `VLC` can read subtitles and write watch progress.
   - Served Termux private-storage subtitles over the local `StreamRelay` `/sub/` loopback endpoint when Android shared storage is unavailable, and restricted startup subtitle cleanup to internal cache and temp folders.
   - Parsed player `stderr` and exit codes to report specific failure reasons (`HTTP 403`, `HTTP 404`, `HTTP 410`, timeout, connection refused), and added deterministic cross-platform contract integration tests (`tests/player_contract.rs`) asserting VLC Win32/UNC paths, IINA CLI option schemas, and header support across OSes.
+  - Unified IINA command construction with standard `--mpv-*` argument schemas across platforms, and restricted macOS IINA header disqualification to GUI app fallbacks missing command line tools.
 - **StreamRelay Proxy & Downloader**:
   - Forwarded `User-Agent` and `Referer` while isolating stream cookies (`Cookie: Edge-Cache-Cookie=...`) to same-host requests across `StreamRelay`, subtitle pre-downloads, and media downloads.
   - Capped `.m4s` segment chunk fetching in `StreamRelay` to batches of 16 concurrent `Range` requests, registered in-flight segment wait futures under lock, and required `http://` or `https://` schemes on `/proxy?url=` routes.
