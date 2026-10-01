@@ -61,14 +61,14 @@ pub fn has_graphical_display() -> bool {
 pub fn detect() -> Vec<PlayerKind> {
     let mut players = Vec::new();
 
-    let is_termux = crate::updater::artifact::is_termux_environment();
+    let is_termux = crate::config::is_termux_environment();
     let has_gui = has_graphical_display();
     if is_termux && !has_gui && !android_openers().is_empty() {
         players.push(PlayerKind::AndroidIntent);
     }
 
     #[cfg(target_os = "macos")]
-    if iina_available() {
+    if iina_resolution().is_some() {
         players.push(PlayerKind::Iina);
     }
 
@@ -92,7 +92,7 @@ pub fn supports_headers(kind: PlayerKind, headers: &[(String, String)]) -> bool 
         return true;
     }
     #[cfg(target_os = "macos")]
-    if kind == PlayerKind::Iina && !iina_cli_exists() {
+    if kind == PlayerKind::Iina && !matches!(iina_resolution(), Some(IinaResolution::Cli(_))) {
         return false;
     }
     match kind {
@@ -281,7 +281,7 @@ pub fn probe_android_openers() -> Vec<AndroidOpener> {
     };
 
     #[cfg(target_os = "android")]
-    let is_termux = crate::updater::artifact::is_termux_environment();
+    let is_termux = crate::config::is_termux_environment();
 
     if let Ok(prefix) = std::env::var("PREFIX") {
         let termux_am = format!("{prefix}/bin/termux-am");
@@ -298,24 +298,16 @@ pub fn probe_android_openers() -> Vec<AndroidOpener> {
         }
     }
 
-    let termux_am_static = format!(
-        "{}/bin/termux-am",
-        crate::updater::artifact::TERMUX_PREFIX_USR
-    );
+    let termux_am_static = format!("{}/bin/termux-am", crate::config::TERMUX_PREFIX_USR);
     if Path::new(&termux_am_static).is_file() {
         push_unique(AndroidOpener::TermuxAm(termux_am_static));
     }
-    let termux_open_static = format!(
-        "{}/bin/termux-open",
-        crate::updater::artifact::TERMUX_PREFIX_USR
-    );
+    let termux_open_static = format!("{}/bin/termux-open", crate::config::TERMUX_PREFIX_USR);
     if Path::new(&termux_open_static).is_file() {
         push_unique(AndroidOpener::TermuxOpen(termux_open_static));
     }
-    let termux_open_url_static = format!(
-        "{}/bin/termux-open-url",
-        crate::updater::artifact::TERMUX_PREFIX_USR
-    );
+    let termux_open_url_static =
+        format!("{}/bin/termux-open-url", crate::config::TERMUX_PREFIX_USR);
     if Path::new(&termux_open_url_static).is_file() {
         push_unique(AndroidOpener::TermuxOpenUrl(termux_open_url_static));
     }
@@ -507,7 +499,7 @@ fn mpv_command(
     command.arg(format!("{prefix}cache-pause-wait=3"));
     command.arg(format!("{prefix}cache-pause-initial=no"));
     let (max_bytes, back_bytes) =
-        if cfg!(target_os = "android") || crate::updater::artifact::is_termux_environment() {
+        if cfg!(target_os = "android") || crate::config::is_termux_environment() {
             ("128M", "50M")
         } else {
             ("256M", "100M")
@@ -1386,21 +1378,11 @@ pub fn clear_cached_player_executables() {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn iina_available() -> bool {
-    iina_resolution().is_some()
-}
-
-#[cfg(target_os = "macos")]
-fn iina_cli_exists() -> bool {
-    matches!(iina_resolution(), Some(IinaResolution::Cli(_)))
-}
-
 fn flatpak_executable(app_id: &str) -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
     }
-    if executable_on_path("flatpak") {
+    if find_in_path("flatpak").is_some() {
         let mut cmd = Command::new("flatpak");
         cmd.arg("info")
             .arg(app_id)
@@ -1444,7 +1426,7 @@ fn configured_executable(variable: &str) -> Option<String> {
     }
     if trimmed.starts_with("flatpak run ")
         || Path::new(trimmed).exists()
-        || executable_on_path(trimmed)
+        || find_in_path(trimmed).is_some()
     {
         Some(trimmed.to_string())
     } else {
@@ -1548,10 +1530,6 @@ pub(crate) fn find_in_path(name: &str) -> Option<String> {
         }
     }
     None
-}
-
-fn executable_on_path(name: &str) -> bool {
-    find_in_path(name).is_some()
 }
 
 fn normalize_player_path(path: &str) -> String {

@@ -570,13 +570,32 @@ pub fn is_deprecation_notice_url(url: &str) -> bool {
         || (lower.contains("macdn.aoneroom.com") && lower.contains("/other/"))
 }
 
+fn to_dash_mpd(url_str: &str) -> Option<String> {
+    let base = url_str.trim_end_matches('*').trim_end_matches('/');
+    if !base.is_empty() && (base.starts_with("http://") || base.starts_with("https://")) {
+        Some(format!("{base}/index.mpd"))
+    } else {
+        None
+    }
+}
+
+fn decode_b64_padded(mut s: String) -> Option<Vec<u8>> {
+    let padding = (4 - s.len() % 4) % 4;
+    if padding > 0 {
+        s.push_str(&"=".repeat(padding));
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(s.as_bytes())
+        .ok()
+}
+
 pub fn resolve_dash_manifest_from_policy(sign_cookie: &str) -> Option<String> {
     for part in sign_cookie.split(';') {
         let trimmed = part.trim();
         if let Some(idx) = trimmed.find("urlprefix=") {
             let prefix_part = &trimmed[idx + "urlprefix=".len()..];
             let b64_token = prefix_part.split(':').next().unwrap_or(prefix_part).trim();
-            let mut normalized: String = b64_token
+            let normalized: String = b64_token
                 .chars()
                 .map(|c| match c {
                     '-' => '+',
@@ -584,27 +603,17 @@ pub fn resolve_dash_manifest_from_policy(sign_cookie: &str) -> Option<String> {
                     other => other,
                 })
                 .collect();
-            let padding = (4 - normalized.len() % 4) % 4;
-            if padding > 0 {
-                normalized.push_str(&"=".repeat(padding));
-            }
-            if let Ok(decoded_bytes) =
-                base64::engine::general_purpose::STANDARD.decode(normalized.as_bytes())
-            {
+            if let Some(decoded_bytes) = decode_b64_padded(normalized) {
                 if let Ok(url_str) = String::from_utf8(decoded_bytes) {
-                    let base_resource = url_str.trim_end_matches('*').trim_end_matches('/');
-                    if !base_resource.is_empty()
-                        && (base_resource.starts_with("http://")
-                            || base_resource.starts_with("https://"))
-                    {
-                        return Some(format!("{base_resource}/index.mpd"));
+                    if let Some(mpd) = to_dash_mpd(&url_str) {
+                        return Some(mpd);
                     }
                 }
             }
         }
         if let Some(policy_raw) = trimmed.strip_prefix("CloudFront-Policy=") {
             let policy_clean = policy_raw.trim();
-            let mut normalized: String = policy_clean
+            let normalized: String = policy_clean
                 .chars()
                 .map(|c| match c {
                     '-' => '+',
@@ -614,14 +623,7 @@ pub fn resolve_dash_manifest_from_policy(sign_cookie: &str) -> Option<String> {
                 })
                 .collect();
 
-            let padding = (4 - normalized.len() % 4) % 4;
-            if padding > 0 {
-                normalized.push_str(&"=".repeat(padding));
-            }
-
-            let Ok(decoded_bytes) =
-                base64::engine::general_purpose::STANDARD.decode(normalized.as_bytes())
-            else {
+            let Some(decoded_bytes) = decode_b64_padded(normalized) else {
                 continue;
             };
 
@@ -639,11 +641,8 @@ pub fn resolve_dash_manifest_from_policy(sign_cookie: &str) -> Option<String> {
                 continue;
             };
 
-            let base_resource = resource.trim_end_matches('*').trim_end_matches('/');
-            if !base_resource.is_empty()
-                && (base_resource.starts_with("http://") || base_resource.starts_with("https://"))
-            {
-                return Some(format!("{base_resource}/index.mpd"));
+            if let Some(mpd) = to_dash_mpd(resource) {
+                return Some(mpd);
             }
         }
     }

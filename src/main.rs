@@ -7,7 +7,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 struct TerminalGuard;
 
 fn restore_terminal() {
-    if !moviebox_tui::updater::artifact::is_termux_environment() {
+    if !moviebox_tui::config::is_termux_environment() {
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::event::PopKeyboardEnhancementFlags
@@ -137,7 +137,7 @@ async fn main() -> std::io::Result<()> {
         crossterm::event::EnableMouseCapture,
         crossterm::event::EnableFocusChange
     )?;
-    if !moviebox_tui::updater::artifact::is_termux_environment() {
+    if !moviebox_tui::config::is_termux_environment() {
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::event::PushKeyboardEnhancementFlags(

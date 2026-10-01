@@ -126,7 +126,7 @@ impl App {
                         "Invalid Player Path",
                         format!("Player path not found: {bad_path}"),
                     )
-                } else if crate::updater::artifact::is_termux_environment() {
+                } else if crate::config::is_termux_environment() {
                     (
                         "No Media Player",
                         "No Android video player or termux-tools detected.".to_string(),
@@ -1110,7 +1110,7 @@ impl App {
                     .unwrap_or_else(|| "unknown".into());
                 log::error!("player crashed (code {code_str}): {error_msg}");
 
-                let is_termux = crate::updater::artifact::is_termux_environment();
+                let is_termux = crate::config::is_termux_environment();
                 let error_lower = error_msg.to_ascii_lowercase();
                 let is_missing_activity = is_termux
                     && (error_lower.contains("no activity found")

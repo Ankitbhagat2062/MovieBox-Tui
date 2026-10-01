@@ -1,6 +1,6 @@
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
-use md5::{Digest, Md5};
+use md5::Md5;
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
@@ -9,22 +9,6 @@ const DEFAULT_SECRET_BYTES: &[u8] = b"\xef\xa8\x91\x97\x4e\xec\xd3\x14\x8d\xf6\x
 const SIGNATURE_BODY_MAX_BYTES: usize = 102_400;
 
 type HmacMd5 = Hmac<Md5>;
-
-fn md5_hex(data: &[u8]) -> String {
-    let mut hasher = Md5::new();
-    hasher.update(data);
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(32);
-    for b in digest {
-        use std::fmt::Write;
-        let _ = write!(&mut hex, "{:02x}", b);
-    }
-    hex
-}
-
-fn b64_encode(data: &[u8]) -> String {
-    base64::engine::general_purpose::STANDARD.encode(data)
-}
 
 fn insert_header(
     headers: &mut reqwest::header::HeaderMap,
@@ -44,7 +28,7 @@ fn insert_header(
 pub fn generate_x_client_token(ts: u64) -> String {
     let ts_str = ts.to_string();
     let reversed_ts: String = ts_str.chars().rev().collect();
-    let hash_val = md5_hex(reversed_ts.as_bytes());
+    let hash_val = crate::cache::md5_hex_bytes(reversed_ts.as_bytes());
     format!("{},{}", ts_str, hash_val)
 }
 
@@ -102,7 +86,7 @@ pub fn build_canonical_string(
         } else {
             bytes
         };
-        (md5_hex(truncated), len.to_string())
+        (crate::cache::md5_hex_bytes(truncated), len.to_string())
     } else {
         (String::new(), String::new())
     };
@@ -133,7 +117,7 @@ pub fn generate_x_tr_signature(
         return format!("{}|2|", timestamp_ms);
     };
     mac.update(canonical.as_bytes());
-    let sig_b64 = b64_encode(&mac.finalize().into_bytes());
+    let sig_b64 = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
 
     format!("{}|2|{}", timestamp_ms, sig_b64)
 }

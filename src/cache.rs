@@ -91,11 +91,11 @@ pub fn set_typed_cache<T: Serialize + ?Sized>(path: &Path, expiry_secs: u64, dat
     }
 }
 
-pub fn md5_hex(value: &str) -> String {
+pub fn md5_hex_bytes(bytes: &[u8]) -> String {
     use md5::{Digest, Md5};
     const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
     let mut hasher = Md5::new();
-    hasher.update(value.as_bytes());
+    hasher.update(bytes);
     let result = hasher.finalize();
     let mut safe_query = String::with_capacity(32);
     for &b in &result {
@@ -103,6 +103,10 @@ pub fn md5_hex(value: &str) -> String {
         safe_query.push(HEX_CHARS[(b & 0x0f) as usize] as char);
     }
     safe_query
+}
+
+pub fn md5_hex(value: &str) -> String {
+    md5_hex_bytes(value.as_bytes())
 }
 
 pub fn atomic_write_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {

@@ -75,6 +75,14 @@ static TEST_SANDBOX_DIR: std::sync::LazyLock<Option<PathBuf>> = std::sync::LazyL
 pub fn is_test_environment() -> bool {
     TEST_SANDBOX_DIR.is_some()
 }
+pub const TERMUX_PREFIX_USR: &str = "/data/data/com.termux/files/usr";
+
+pub fn is_termux_environment() -> bool {
+    cfg!(target_os = "android")
+        || std::env::var("TERMUX_VERSION").is_ok()
+        || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"))
+        || std::path::Path::new(TERMUX_PREFIX_USR).exists()
+}
 
 pub fn config_dir() -> Option<PathBuf> {
     if let Some(sandbox) = TEST_SANDBOX_DIR.as_ref() {

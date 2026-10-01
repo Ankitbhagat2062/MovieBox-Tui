@@ -23,6 +23,7 @@
   - Matched Dramachi episode numbers across Unicode boundaries and quality suffixes, parallelized Stremio addon movie/series catalog searches and M3U playlist loads, and inserted `/manifest.json` before query parameters in addon URLs.
   - Evicted cached poster images only when file age exceeds the 30-day TTL so valid cache files survive minor clock skew.
   - Replaced synchronous `fsync` barriers on ephemeral cache writes with atomic temp-file renames, cached default directory paths via `LazyLock`, reused a static HTTP client in `probe_url`, and shared `Arc<[u8]>` poster buffers across disk caching and decoding.
+  - Centralized Termux platform detection in core configuration and deduplicated base64 manifest policy parsing.
 - **TUI Navigation, Themes, Modals & Mouse**:
   - Validated `Details` and stream responses against each item's own provider so cross-provider items opened from Continue Watching, Favorites, `/history`, or `/favorites` load without hanging.
   - Aborted in-flight caption and 4KHDHub mirror resolution tasks on `Esc` or `GoBack` so stale subtitle popups or players do not launch after leaving `Details`.

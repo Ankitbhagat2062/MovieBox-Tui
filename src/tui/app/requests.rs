@@ -2022,10 +2022,8 @@ mod tests {
             app.state.search_results[1].title,
             "Ek Deewane Ki Deewaniyat"
         );
-        // Page 1 only had 2 items (< 15), so it should already be marked exhausted
         assert!(app.state.search_exhausted);
 
-        // If a page 2 arrives with 0 matching items, search_exhausted remains true
         app.handle_requests(Action::SearchSuccess {
             context,
             request_id,

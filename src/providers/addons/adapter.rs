@@ -296,13 +296,10 @@ pub fn parse_audio_tracks(text: &str) -> Option<String> {
 
 fn extract_domain_label(url: &str) -> Option<String> {
     let url_clean = url.trim();
-    let without_proto = if let Some(stripped) = url_clean.strip_prefix("https://") {
-        stripped
-    } else if let Some(stripped) = url_clean.strip_prefix("http://") {
-        stripped
-    } else {
-        url_clean
-    };
+    let without_proto = url_clean
+        .strip_prefix("https://")
+        .or_else(|| url_clean.strip_prefix("http://"))
+        .unwrap_or(url_clean);
 
     let host = without_proto.split(['/', ':', '?', '#']).next()?.trim();
     if host.is_empty() || host.parse::<std::net::IpAddr>().is_ok() {

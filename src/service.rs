@@ -521,7 +521,7 @@ pub fn extract_browse_metrics(item: &serde_json::Value) -> BrowseMetrics {
 }
 
 pub fn resolve_subtitle_dir() -> PathBuf {
-    if crate::updater::artifact::is_termux_environment() {
+    if crate::config::is_termux_environment() {
         if let Some(home) = dirs::home_dir() {
             let storage = home.join("storage/downloads/moviebox_subs");
             if home.join("storage/downloads").exists() {
@@ -576,7 +576,7 @@ pub fn resolve_download_dir(custom_dir: Option<&Path>) -> PathBuf {
         .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    if crate::updater::artifact::is_termux_environment() {
+    if crate::config::is_termux_environment() {
         if let Some(home) = dirs::home_dir() {
             let android_storage = home.join("storage/downloads");
             if android_storage.exists() {
