@@ -26,7 +26,7 @@ pub enum PlayerKind {
 impl PlayerKind {
     pub fn label(&self) -> &'static str {
         match self {
-            PlayerKind::Mpv => "mpv",
+            PlayerKind::Mpv => "MPV",
             PlayerKind::Iina => "IINA",
             PlayerKind::Vlc => "VLC",
             PlayerKind::AndroidIntent => "Android Player",

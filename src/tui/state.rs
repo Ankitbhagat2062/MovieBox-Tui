@@ -111,7 +111,7 @@ impl SettingsCategory {
 pub fn settings_player_label(choice: Option<&str>) -> &'static str {
     match choice {
         None | Some("auto") => "None",
-        Some("mpv") => "mpv",
+        Some("mpv") => "MPV",
         Some("vlc") => "VLC",
         Some("iina") => "IINA",
         Some("android") => "Android Player",

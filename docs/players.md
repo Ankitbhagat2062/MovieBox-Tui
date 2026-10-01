@@ -6,15 +6,15 @@ MovieBox-TUI delegates playback to external media players (`mpv`, `IINA`, `VLC`,
 
 Players are detected in priority order and cached across runs:
 
-- **macOS**: `IINA` → `mpv` → `VLC`
+- **macOS**: `IINA` → `MPV` → `VLC`
   - Searches `/Applications`, `~/Applications`, Homebrew, MacPorts, Nix, and native CLI tools.
-- **Linux**: `mpv` → `VLC`
+- **Linux**: `MPV` → `VLC`
   - Searches `$PATH`, `~/.local/bin`, Flatpak exports (`io.mpv.Mpv`, `org.videolan.VLC`), and Snap.
-- **Windows**: `mpv` → `VLC`
+- **Windows**: `MPV` → `VLC`
   - Searches `%LOCALAPPDATA%`, `Program Files`, WinGet packages, Scoop shims, Chocolatey, and Windows Registry `App Paths`.
-- **Android / Termux**: `Android Intent` (headless CLI) or `mpv` → `VLC` → `Android Intent` (graphical X11/Wayland desktop)
+- **Android / Termux**: `Android Intent` (headless CLI) or `MPV` → `VLC` → `Android Intent` (graphical X11/Wayland desktop)
   - In headless terminal environments without an active display server, dispatches directly to external Android media apps via `termux-open` or `am start`.
-  - In graphical environments with an active display server (`$DISPLAY` or `$WAYLAND_DISPLAY`, such as Xfce in udroid/PRoot or Termux:X11), native desktop players (`mpv`/`VLC`) are prioritized so playback opens in a desktop window.
+  - In graphical environments with an active display server (`$DISPLAY` or `$WAYLAND_DISPLAY`, such as Xfce in udroid/PRoot or Termux:X11), native desktop players (`MPV`/`VLC`) are prioritized so playback opens in a desktop window.
 
 You can set a default player via `/settings` (Media Player), or override it with the `MOVIEBOX_PLAYER` environment variable.
 

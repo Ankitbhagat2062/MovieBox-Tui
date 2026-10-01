@@ -224,3 +224,11 @@ fn test_player_supports_headers_contract_matrix() {
         "AndroidIntent must support headers (via StreamRelay loopback)"
     );
 }
+
+#[test]
+fn test_player_display_labels_contract() {
+    assert_eq!(PlayerKind::Mpv.label(), "MPV");
+    assert_eq!(PlayerKind::Iina.label(), "IINA");
+    assert_eq!(PlayerKind::Vlc.label(), "VLC");
+    assert_eq!(PlayerKind::AndroidIntent.label(), "Android Player");
+}
