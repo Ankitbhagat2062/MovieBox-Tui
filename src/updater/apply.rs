@@ -34,13 +34,11 @@ impl InstallationEnvironment {
             Self::Termux => Some(
                 "Android / Termux update: run 'curl -fsSL https://raw.githubusercontent.com/mesamirh/MovieBox-Tui/main/install.sh | bash'",
             ),
-            Self::Flatpak => Some("Running inside Flatpak. Please update via: flatpak update"),
-            Self::Snap => {
-                Some("Running inside Snap. Please update via: sudo snap refresh moviebox-tui")
+            Self::Flatpak => Some("Running inside Flatpak. Update via: flatpak update"),
+            Self::Snap => Some("Running inside Snap. Update via: sudo snap refresh moviebox-tui"),
+            Self::ReadOnly => {
+                Some("Binary directory is not user-writable. Update via system package manager.")
             }
-            Self::ReadOnly => Some(
-                "MovieBox-Tui binary is not user-writable. Please update via your system package manager.",
-            ),
             Self::DirectReplace | Self::WindowsHelper => None,
         }
     }

@@ -32,6 +32,7 @@
   - Synchronized `Home` and `Details` mouse hitboxes with the 3-row download gauge, narrow `< 85` col selector panes, compact `< 76` col bottom bar buttons, non-Stream footer `[Enter] Select` actions, and outside-click theme preview revert.
   - Downgraded named themes in `Theme::from_kind` on 16-color (`Basic`) and `NO_COLOR` terminals, improved `Latte` light-mode contrast on selected badges and modal rows, and added `ALACRITTY_SOCKET`, `KONSOLE_VERSION`, `TERMUX_VERSION`, `WT_SESSION`, and `TERM_PROGRAM` graphics/TrueColor detection.
   - Shortened toast notifications to show filenames instead of full paths and removed duplicate status-bar and toast alerts on compact terminals.
+  - Pruned conversational filler from terminal size warnings, language selection prompts, and package manager upgrade notices.
 
 ## [0.1.25] - 2026-09-27
 

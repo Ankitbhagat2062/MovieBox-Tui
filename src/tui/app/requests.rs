@@ -1057,8 +1057,7 @@ impl App {
                 {
                     self.state.details_pane = crate::tui::state::DetailsPane::Languages;
                     self.state.is_loading = false;
-                    self.state
-                        .set_status_default("Please select a language dubbing.");
+                    self.state.set_status_default("Select a language dubbing.");
                 } else {
                     if !self.state.language_chosen {
                         if details.is_series() && !self.state.available_seasons.is_empty() {

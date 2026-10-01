@@ -611,7 +611,7 @@ impl App {
                     area.width, area.height
                 )),
                 Line::from("Minimum required size: 50×14"),
-                Line::from("Please enlarge your terminal window."),
+                Line::from("Enlarge terminal window."),
             ];
 
             let padding_top = area.height.saturating_sub(2).saturating_sub(3) / 2;
