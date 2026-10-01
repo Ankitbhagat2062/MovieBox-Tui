@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.26] - 2026-10-01
 
 ### Fixed
 - **Media Playback & Subtitle Engine**:
