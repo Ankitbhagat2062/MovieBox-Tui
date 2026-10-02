@@ -53,8 +53,16 @@ pub fn detect_environment(exe_path: &Path) -> InstallationEnvironment {
         return InstallationEnvironment::Flatpak;
     }
 
-    if std::env::var_os("SNAP").is_some() {
-        return InstallationEnvironment::Snap;
+    if let Some(snap_dir) = std::env::var_os("SNAP") {
+        let snap_dir_str = snap_dir.to_string_lossy();
+        let exe_str = exe_path.to_string_lossy();
+        let is_moviebox_snap = std::env::var("SNAP_NAME")
+            .is_ok_and(|name| name.contains("moviebox"))
+            || exe_str.starts_with(snap_dir_str.as_ref())
+            || exe_str.contains("/snap/moviebox");
+        if is_moviebox_snap {
+            return InstallationEnvironment::Snap;
+        }
     }
 
     if super::artifact::is_termux_environment() {
@@ -294,13 +302,48 @@ fn spawn_windows_helper(staged_path: &Path, current_exe: &Path) -> Result<(), St
     Ok(())
 }
 
+pub fn resolve_executable_path(path: &Path) -> PathBuf {
+    if path.exists() {
+        return path.to_path_buf();
+    }
+
+    let raw = path.to_string_lossy();
+    let without_deleted = raw.strip_suffix(" (deleted)").unwrap_or(&raw);
+    let candidate = PathBuf::from(without_deleted);
+    if candidate.exists() {
+        return candidate;
+    }
+
+    if candidate.extension().and_then(|ext| ext.to_str()) == Some("old") {
+        let stripped = candidate.with_extension("");
+        if stripped.exists() {
+            return stripped;
+        }
+    }
+
+    if let Some(file_name) = candidate.file_name().and_then(|s| s.to_str()) {
+        if let Some(base_name) = file_name.strip_suffix(".old") {
+            let stripped = candidate.with_file_name(base_name);
+            if stripped.exists() {
+                return stripped;
+            }
+        }
+    }
+
+    path.to_path_buf()
+}
+
 pub fn restart_process(exe_path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        let resolved = resolve_executable_path(exe_path);
         let args: Vec<String> = std::env::args().skip(1).collect();
-        let err = Command::new(exe_path).args(&args).exec();
-        Err(format!("failed to exec restarted process: {err}"))
+        let err = Command::new(&resolved).args(&args).exec();
+        Err(format!(
+            "failed to exec restarted process {}: {err}",
+            resolved.display()
+        ))
     }
 
     #[cfg(windows)]
@@ -390,5 +433,27 @@ mod tests {
         assert!(!staged.exists());
         assert!(exe.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_executable_path_handles_existing_and_deleted_suffixes() {
+        let temp = tempfile::tempdir().unwrap();
+        let real_exe = temp.path().join("moviebox-tui");
+        std::fs::write(&real_exe, b"test-bin").unwrap();
+
+        // Exact match
+        assert_eq!(resolve_executable_path(&real_exe), real_exe);
+
+        // Linux deleted suffix
+        let deleted_path = temp.path().join("moviebox-tui (deleted)");
+        assert_eq!(resolve_executable_path(&deleted_path), real_exe);
+
+        // Linux old.deleted suffix
+        let old_deleted_path = temp.path().join("moviebox-tui.old (deleted)");
+        assert_eq!(resolve_executable_path(&old_deleted_path), real_exe);
+
+        // Linux old suffix
+        let old_path = temp.path().join("moviebox-tui.old");
+        assert_eq!(resolve_executable_path(&old_path), real_exe);
     }
 }

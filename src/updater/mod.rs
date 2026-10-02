@@ -7,7 +7,7 @@ pub mod verify;
 
 pub use apply::{
     InstallationEnvironment, SelfUpdateOutcome, apply_staged_binary, detect_environment,
-    is_homebrew_managed, is_scoop_managed, is_writable, restart_process,
+    is_homebrew_managed, is_scoop_managed, is_writable, resolve_executable_path, restart_process,
 };
 pub use artifact::{Release, ReleaseAsset, TargetPlatform, is_termux_environment};
 pub use check::{check, check_release, is_newer};

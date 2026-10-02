@@ -823,6 +823,7 @@ impl App {
                 self.state.is_updating = true;
                 self.state.update_available = None;
                 self.state.update_progress_msg = Some("Starting self-update...".to_string());
+                self.state.update_target_exe = std::env::current_exe().ok();
                 self.state.notify(
                     NotificationKind::Info,
                     "Self-Update",
@@ -894,9 +895,16 @@ impl App {
                         .ok();
 
                         #[cfg(unix)]
-                        if let Ok(exe_path) = std::env::current_exe() {
-                            if let Err(e) = crate::updater::restart_process(&exe_path) {
-                                log::error!("failed to restart process after update: {e}");
+                        {
+                            let exe_path = self
+                                .state
+                                .update_target_exe
+                                .clone()
+                                .or_else(|| std::env::current_exe().ok());
+                            if let Some(exe_path) = exe_path {
+                                if let Err(e) = crate::updater::restart_process(&exe_path) {
+                                    log::error!("failed to restart process after update: {e}");
+                                }
                             }
                         }
                         std::process::exit(0);

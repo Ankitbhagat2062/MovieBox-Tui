@@ -470,3 +470,25 @@ async fn test_update_modal_rendered_symmetry_and_exact_height() {
         assert!(title_line.contains("Update Available"));
     }
 }
+
+#[tokio::test]
+async fn test_update_target_exe_tracking_on_start() {
+    let mut app = App::new();
+    assert!(app.state().update_target_exe.is_none());
+
+    app.handle_action(Action::StartSelfUpdate).await;
+
+    assert!(app.state().is_updating);
+    assert_eq!(app.state().update_target_exe, std::env::current_exe().ok());
+}
+
+#[test]
+fn test_restart_resolution_recovers_unlinked_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let current_bin = temp.path().join("moviebox-tui");
+    std::fs::write(&current_bin, b"new binary").unwrap();
+
+    let deleted_link = temp.path().join("moviebox-tui.old (deleted)");
+    let resolved = moviebox_tui::updater::resolve_executable_path(&deleted_link);
+    assert_eq!(resolved, current_bin);
+}
