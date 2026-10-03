@@ -78,7 +78,7 @@ src/
 │   ├── download.rs                # Streaming release archive downloader
 │   ├── verify.rs                  # Cryptographic SHA-256 checksum validator
 │   ├── extract.rs                 # Tar.gz and Zip extractor with path traversal guard
-│   └── apply.rs                   # Atomic executable replacement & Windows helper script
+│   └── apply.rs                   # Atomic binary replacement, path resolution, & restart helper
 │
 └── Presentation & TUI (`src/tui/`)
     ├── action.rs                  # Unified Action enum message bus

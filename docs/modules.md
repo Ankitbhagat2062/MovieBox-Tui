@@ -84,7 +84,7 @@ src/
     download.rs      Release asset download (https-only) with retry.
     verify.rs        SHA-256 hashing and sha256sums parsing for artifact verification.
     extract.rs       tar.gz / archive extraction for the staged binary.
-    apply.rs         Swap in the new binary, install-environment detection, restart.
+    apply.rs         Swap in new binary, resolve executable path, detect environment, restart.
     artifact.rs      Release/ReleaseAsset types, target-platform matching.
 
   tui/

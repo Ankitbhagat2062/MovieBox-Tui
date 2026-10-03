@@ -80,7 +80,7 @@ All popups (Themes, Providers, Players, Resolution, Subtitles, TV Manager, Addon
 
 ## Update Notification Modal
 
-- **`u`**: Update immediately (Direct installation).
+- **`u`**: Update immediately (Direct installation). Downloads, verifies, stages, and restarts the process automatically.
 - **`b`**: Copy Homebrew update command to clipboard.
 - **`s`**: Copy Scoop update command to clipboard.
 - **`o`**: Open GitHub release notes in default browser.
