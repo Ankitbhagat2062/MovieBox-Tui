@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- **In-App Updater Lifecycle**:
+  - Tracked target executable path before staging updates and resolved deleted inode suffixes (` (deleted)`) on Linux to restart the new binary automatically after popup self-update.
+  - Scoped Snap package detection to `SNAP_NAME` matching `moviebox-tui` to prevent false positive Snap environment detection when launched inside unrelated host sandboxes.
+
 ### Changed
 - **Dependencies & Build Infrastructure**:
   - Upgraded `sha2` to 0.11 with chunked streaming hash updates, preserving non-blocking checksum verification for release archives.
